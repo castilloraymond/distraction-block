@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Site Counter -->
+    <div id="site-counter"></div>
+    
+    <!-- Add Site Form -->
+    <section id="add-site-form">
+      <h3>Add Site to Block</h3>
+      <div class="input-group">
+        <input type="text" id="website-input" placeholder="example.com">
+        <button id="add-button" class="btn btn-primary">Block</button>
+      </div>
+      <div id="audio-mode-container">
+        <label>
+          <input type="checkbox" id="audio-mode-checkbox">
+          Audio Mode (allows music/audio only)
+        </label>
+      </div>
+      <div id="error-message" style="display: none;"></div>
+    </section>
+    
+    <!-- Timer Section -->
+    <section id="timer-section">
+      <h3>Focus Timer</h3>
+      <div id="timer-controls">
+        <div class="timer-duration">
+          <label>Duration:</label>
+          <input type="number" id="timer-hours" min="0" max="23" value="1" placeholder="0">
+          <span>h</span>
+          <input type="number" id="timer-minutes" min="0" max="59" value="30" placeholder="30">
+          <span>m</span>
+        </div>
+        <div class="timer-list-selector">
+          <label>Site List:</label>
+          <select id="timer-site-list" class="w-full"></select>
+        </div>
+        <button id="start-timer-btn" class="btn btn-primary w-full">Start Focus Session</button>
+      </div>
+      <div id="timer-display" style="display: none;">
+        <div class="timer-display-container">
+          <div class="doughnut-timer">
+            <svg viewBox="0 0 100 100">
+              <circle class="doughnut-background" cx="50" cy="50" r="42"></circle>
+              <circle id="doughnut-progress" class="doughnut-progress" cx="50" cy="50" r="42"></circle>
+            </svg>
+            <div class="timer-center">
+              <div id="timer-center-time" class="timer-center-time">25:00</div>
+              <div class="timer-center-label">Remaining</div>
+            </div>
+          </div>
+          <div class="timer-info">
+            <div id="timer-list-name" class="timer-list-name">Focus List Name</div>
+            <div class="timer-status">🎯 Focus Session Active</div>
+          </div>
+          <button id="stop-timer-btn" class="btn btn-danger">End Session</button>
+        </div>
+      </div>
+    </section>
+    
+    <!-- Site Lists Section -->
+    <section id="site-lists-section">
+      <h3>Site Lists</h3>
+      <div id="site-lists-container"></div>
+      <button id="create-list-btn" class="btn btn-success w-full">+ Create New List</button>
+    </section>
+    
+    <!-- Create List Modal -->
+    <div id="create-list-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Create New Site List</h3>
+        <input type="text" id="list-name-input" placeholder="e.g., Social Media Focus" class="w-full mb-sm">
+        <div id="list-audio-mode-container" class="mb-md">
+          <label>
+            <input type="checkbox" id="list-audio-mode-checkbox">
+            Enable Audio Mode (music/audio only)
+          </label>
+        </div>
+        <div class="modal-buttons">
+          <button id="create-list-cancel" class="btn btn-secondary">Cancel</button>
+          <button id="create-list-confirm" class="btn btn-primary">Create List</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Whitelist Section -->
+    <section id="whitelist-section" style="display: none;">
+      <h3>Allowed Pages for <span id="whitelist-site-name"></span></h3>
+      <div id="whitelist-form">
+        <input type="text" id="whitelist-input" placeholder="e.g., /watch?v=educational">
+        <button id="add-whitelist-button" class="btn btn-primary btn-sm">Allow</button>
+      </div>
+      <div id="whitelist-list"></div>
+      <button id="close-whitelist-button" class="btn btn-secondary w-full mt-md">Close</button>
+    </section>
+    
+    <!-- Individual Blocked Sites -->
+    <section id="blocked-sites-list"></section>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

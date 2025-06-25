@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Site Blocked</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 50px;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #dc3545;
+      margin-bottom: 20px;
+    }
+    p {
+      color: #666;
+      line-height: 1.6;
+    }
+    .icon {
+      font-size: 48px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">🚫</div>
+    <h1 id="block-title">Site Blocked</h1>
+    <div id="timer-info" style="display: none;">
+      <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin: 16px 0;">
+        <h3 style="margin: 0 0 8px 0; color: #28a745;">⏱️ Focus Timer Active</h3>
+        <div id="timer-list-name" style="font-size: 14px; color: #666;"></div>
+        <div id="timer-remaining" style="font-size: 16px; color: #007cba; font-weight: bold; margin: 8px 0;"></div>
+        <button id="end-timer-btn" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 8px;">End Timer Early</button>
+      </div>
+    </div>
+    <p id="block-message">This site is blocked to help you focus and stay productive.</p>
+    <p>Use the extension popup to manage your blocked sites.</p>
+  </div>
+  
+  <script>
+    // Check for active timer
+    chrome.runtime.sendMessage({
+      action: 'GET_ACTIVE_TIMER'
+    }, (response) => {
+      if (response && response.success && response.data) {
+        const timer = response.data;
+        document.getElementById('block-title').textContent = 'Timer Active - Site Blocked';
+        document.getElementById('timer-info').style.display = 'block';
+        document.getElementById('block-message').textContent = 'This site is blocked as part of your focus session.';
+        
+        // Get list name
+        chrome.runtime.sendMessage({
+          action: 'GET_SITE_LISTS'
+        }, (listResponse) => {
+          if (listResponse && listResponse.success) {
+            const list = listResponse.data.find(l => l.id === timer.siteListId);
+            if (list) {
+              document.getElementById('timer-list-name').textContent = `Focus List: ${list.name}`;
+            }
+          }
+        });
+        
+        // Update remaining time
+        function updateRemainingTime() {
+          const now = Date.now();
+          const remaining = Math.max(0, timer.duration - (now - timer.startTime));
+          
+          if (remaining === 0) {
+            location.reload();
+            return;
+          }
+          
+          const totalSeconds = Math.floor(remaining / 1000);
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+          
+          let timeString;
+          if (hours > 0) {
+            timeString = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          } else {
+            timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          }
+          
+          document.getElementById('timer-remaining').textContent = `Time Remaining: ${timeString}`;
+        }
+        
+        updateRemainingTime();
+        setInterval(updateRemainingTime, 1000);
+        
+        // Handle end timer button
+        document.getElementById('end-timer-btn').addEventListener('click', () => {
+          if (confirm('Are you sure you want to end the focus timer early?')) {
+            chrome.runtime.sendMessage({
+              action: 'STOP_TIMER'
+            }, (stopResponse) => {
+              if (stopResponse && stopResponse.success) {
+                location.reload();
+              }
+            });
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>
