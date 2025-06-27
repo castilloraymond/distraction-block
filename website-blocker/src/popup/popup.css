@@ -44,7 +44,7 @@
 
 body {
   margin: 0;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md);
   width: 320px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: 14px;
@@ -175,10 +175,10 @@ input[type="checkbox"] {
 /* Site Input Form */
 #add-site-form {
   background: white;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
   border: 1px solid var(--color-gray-200);
 }
 
@@ -226,10 +226,10 @@ input[type="checkbox"] {
 /* Timer Section */
 #timer-section {
   background: white;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
   border: 1px solid var(--color-gray-200);
 }
 
@@ -248,7 +248,7 @@ input[type="checkbox"] {
 }
 
 .timer-duration input {
-  width: 50px;
+  width: 60px;
   text-align: center;
 }
 
@@ -349,10 +349,10 @@ input[type="checkbox"] {
 /* Site Lists Section */
 #site-lists-section {
   background: white;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
   border: 1px solid var(--color-gray-200);
 }
 
@@ -638,10 +638,10 @@ input[type="checkbox"] {
 /* Whitelist Section */
 #whitelist-section {
   background: white;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  margin: var(--spacing-lg) 0;
+  margin: var(--spacing-md) 0;
   border: 1px solid var(--color-gray-200);
 }
 

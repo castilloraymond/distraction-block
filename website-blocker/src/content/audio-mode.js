@@ -9,14 +9,24 @@ if (document.readyState === 'loading') {
 }
 
 function checkPageMode() {
-  // First check for active timer
+  // First check if temporarily disabled
   chrome.runtime.sendMessage({
-    action: 'GET_ACTIVE_TIMER'
-  }, (timerResponse) => {
-    if (chrome.runtime.lastError) {
-      console.error('Error checking timer:', chrome.runtime.lastError);
+    action: 'CHECK_TEMPORARY_WHITELIST',
+    payload: { url: window.location.hostname }
+  }, (tempResponse) => {
+    if (tempResponse && tempResponse.isTemporarilyDisabled) {
+      console.log('Audio mode temporarily disabled');
       return;
     }
+    
+    // Check for active timer
+    chrome.runtime.sendMessage({
+      action: 'GET_ACTIVE_TIMER'
+    }, (timerResponse) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error checking timer:', chrome.runtime.lastError);
+        return;
+      }
     
     if (timerResponse && timerResponse.success && timerResponse.data) {
       // Timer is active - check if this site is in the timer's list
@@ -46,8 +56,9 @@ function checkPageMode() {
               }
             }
             
-            // If audio mode is enabled for the timer list, show audio overlay
-            if (activeList.audioMode) {
+            // If audio mode is enabled for the timer list and this is YouTube, show audio overlay
+            const isYouTube = window.location.hostname.includes('youtube.com');
+            if (activeList.audioMode && isYouTube) {
               console.log('Enabling audio mode for timer list');
               setTimeout(enableAudioMode, 500);
             }
@@ -58,6 +69,7 @@ function checkPageMode() {
       // No active timer - check individual site blocking
       checkIndividualSiteBlocking();
     }
+    });
   });
 }
 
@@ -90,8 +102,12 @@ function checkIndividualSiteBlocking() {
       }
       
       if (audioResponse && audioResponse.isAudioMode) {
-        console.log('Enabling audio mode for:', window.location.hostname);
-        setTimeout(enableAudioMode, 500);
+        // Only enable audio mode for YouTube sites
+        const isYouTube = window.location.hostname.includes('youtube.com');
+        if (isYouTube) {
+          console.log('Enabling audio mode for:', window.location.hostname);
+          setTimeout(enableAudioMode, 500);
+        }
       }
     });
   });
@@ -115,7 +131,7 @@ function enableAudioMode() {
           <li>System media controls</li>
         </ul>
       </div>
-      <button onclick="chrome.runtime.sendMessage({action: 'DISABLE_AUDIO_MODE_TEMPORARILY', payload: {url: '${window.location.hostname}'}})">
+      <button id="show-temporarily-btn">
         Show Site Temporarily (1 minute)
       </button>
     </div>
@@ -206,6 +222,19 @@ function enableAudioMode() {
   
   // Add the overlay
   document.body.appendChild(overlay);
+  
+  // Set up the temporary disable button
+  const showTemporarilyBtn = document.getElementById('show-temporarily-btn');
+  showTemporarilyBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({
+      action: 'DISABLE_AUDIO_MODE_TEMPORARILY',
+      payload: { url: window.location.hostname }
+    }, (response) => {
+      if (response && response.success) {
+        window.location.reload();
+      }
+    });
+  });
   
   // Set up keyboard shortcuts for audio control
   setupAudioKeyboardShortcuts();

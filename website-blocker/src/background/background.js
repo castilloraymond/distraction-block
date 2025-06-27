@@ -145,8 +145,11 @@ async function generateRules(sites) {
           });
         }
         
-        if (!activeList.audioMode) {
-          // Regular blocking rules
+        // For timer lists, show audio mode only for YouTube, block others normally
+        const isYouTube = site.includes('youtube.com');
+        
+        if (!activeList.audioMode || !isYouTube) {
+          // Regular blocking rules for non-YouTube sites or non-audio mode
           rules.push({
             id: baseId,
             priority: 1,
@@ -205,8 +208,11 @@ async function generateRules(sites) {
         });
       }
       
-      if (!site.audioMode) {
-        // Regular blocking rules for non-audio mode sites
+      // For individual sites, show audio mode only for YouTube, block others normally
+      const isYouTube = domain.includes('youtube.com');
+      
+      if (!site.audioMode || !isYouTube) {
+        // Regular blocking rules for non-YouTube sites or non-audio mode sites
         rules.push({
           id: baseId,
           priority: 1,
@@ -265,6 +271,11 @@ chrome.runtime.onInstalled.addListener(async () => {
     console.log('Rules generated on install:', rules);
     await updateRules(rules);
     console.log('Rules applied on install');
+    
+    // Set correct icon based on timer state
+    const activeTimer = await getActiveTimer();
+    const isActive = await isTimerActive();
+    await updateExtensionIcon(activeTimer && isActive);
   } catch (error) {
     console.error('Error applying rules on install:', error);
   }
@@ -381,6 +392,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.error('Error in STOP_TIMER:', error);
         sendResponse({ success: false, error: error.message });
       });
+      return true;
+    case 'DISABLE_AUDIO_MODE_TEMPORARILY':
+      handleDisableAudioModeTemporarily(request.payload, sendResponse).catch(error => {
+        console.error('Error in DISABLE_AUDIO_MODE_TEMPORARILY:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+      return true;
+    case 'CHECK_TEMPORARY_WHITELIST':
+      handleCheckTemporaryWhitelist(request.payload, sendResponse);
       return true;
     default:
       console.log('Unknown action:', request.action);
@@ -744,6 +764,9 @@ async function handleStartTimer(payload, sendResponse) {
     const rules = await generateRules(sites);
     await updateRules(rules);
     
+    // Change icon to indicate active timer
+    await updateExtensionIcon(true);
+    
     sendResponse({ success: true, data: timer });
   } catch (error) {
     console.error('Error in handleStartTimer:', error);
@@ -760,9 +783,81 @@ async function handleStopTimer(sendResponse) {
     const rules = await generateRules(sites);
     await updateRules(rules);
     
+    // Revert icon to normal
+    await updateExtensionIcon(false);
+    
     sendResponse({ success: true });
   } catch (error) {
     console.error('Error in handleStopTimer:', error);
     sendResponse({ success: false, error: error.message });
+  }
+}
+
+// Temporary whitelist storage
+let temporaryWhitelist = new Map();
+
+async function handleDisableAudioModeTemporarily(payload, sendResponse) {
+  try {
+    const { url } = payload;
+    const domain = url.replace('www.', '');
+    
+    // Add to temporary whitelist for 1 minute
+    const expireTime = Date.now() + 60000; // 1 minute
+    temporaryWhitelist.set(domain, expireTime);
+    
+    // Clean up expired entries
+    for (const [key, value] of temporaryWhitelist) {
+      if (Date.now() > value) {
+        temporaryWhitelist.delete(key);
+      }
+    }
+    
+    console.log('Added to temporary whitelist:', domain, 'expires at:', new Date(expireTime));
+    sendResponse({ success: true });
+  } catch (error) {
+    console.error('Error in handleDisableAudioModeTemporarily:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+function handleCheckTemporaryWhitelist(payload, sendResponse) {
+  try {
+    const { url } = payload;
+    const domain = url.replace('www.', '');
+    
+    // Clean up expired entries
+    for (const [key, value] of temporaryWhitelist) {
+      if (Date.now() > value) {
+        temporaryWhitelist.delete(key);
+      }
+    }
+    
+    const isTemporarilyDisabled = temporaryWhitelist.has(domain);
+    sendResponse({ isTemporarilyDisabled });
+  } catch (error) {
+    console.error('Error in handleCheckTemporaryWhitelist:', error);
+    sendResponse({ isTemporarilyDisabled: false });
+  }
+}
+
+// Extension icon management
+async function updateExtensionIcon(isTimerActive) {
+  try {
+    console.log('Updating extension icon, timer active:', isTimerActive);
+    
+    if (isTimerActive) {
+      // Use badge to indicate timer is active (more reliable than icon changes)
+      await chrome.action.setBadgeText({ text: '⏲' });
+      await chrome.action.setBadgeBackgroundColor({ color: '#059669' });
+      
+      // Also try to change the icon title to provide feedback
+      await chrome.action.setTitle({ title: 'Website Blocker - Focus Timer Active' });
+    } else {
+      // Clear badge and title when timer is not active
+      await chrome.action.setBadgeText({ text: '' });
+      await chrome.action.setTitle({ title: 'Website Blocker' });
+    }
+  } catch (error) {
+    console.error('Error updating extension icon/badge:', error);
   }
 }

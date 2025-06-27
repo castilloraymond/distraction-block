@@ -244,7 +244,8 @@ function renderBlockedSites(sites) {
   const listContainer = document.getElementById('blocked-sites-list');
   const counterDiv = document.getElementById('site-counter');
   
-  counterDiv.textContent = `Blocking ${sites.length} site${sites.length !== 1 ? 's' : ''}`;
+  // Remove the blocking counter text
+  counterDiv.style.display = 'none';
   
   listContainer.innerHTML = '';
   
