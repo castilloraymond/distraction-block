@@ -1,23 +1,7 @@
 // Storage functions
 async function getBlockedSites() {
   const result = await chrome.storage.local.get(['blockedSites']);
-  const sites = result.blockedSites || [];
-  
-  // Migrate old sites to have whitelist property
-  let needsSave = false;
-  sites.forEach(site => {
-    if (!site.whitelist) {
-      site.whitelist = [];
-      needsSave = true;
-    }
-  });
-  
-  if (needsSave) {
-    console.log('Migrating sites to include whitelist property');
-    await saveBlockedSites(sites);
-  }
-  
-  return sites;
+  return result.blockedSites || [];
 }
 
 async function saveBlockedSites(sites) {
@@ -46,11 +30,24 @@ async function startTimer(siteListId, duration) {
   };
   
   await chrome.storage.local.set({ activeTimer: timer });
+  
+  // Create an alarm for when the timer expires
+  const alarmName = 'focusTimerExpiration';
+  await chrome.alarms.create(alarmName, {
+    when: Date.now() + duration
+  });
+  console.log('Created alarm for timer expiration in', duration, 'ms');
+  
   return timer;
 }
 
 async function stopTimer() {
   await chrome.storage.local.remove(['activeTimer']);
+  
+  // Clear the alarm
+  const alarmName = 'focusTimerExpiration';
+  await chrome.alarms.clear(alarmName);
+  console.log('Cleared timer alarm');
 }
 
 async function isTimerActive() {
@@ -100,12 +97,12 @@ async function updateSiteList(id, updates) {
 }
 
 // Rules functions
+// Rule ID ranges: Timer rules: 50000-99999, Individual site rules: 1000-49999
 async function generateRules(sites) {
   const redirectUrl = chrome.runtime.getURL('src/pages/blocked.html');
   console.log('Redirect URL:', redirectUrl);
   
   const rules = [];
-  let ruleIdCounter = 1;
   
   // Check for active timer
   const activeTimer = await getActiveTimer();
@@ -113,13 +110,16 @@ async function generateRules(sites) {
   
   if (activeTimer && isActive) {
     // Timer is active - block sites from the active timer's list
+    // Use ID range 50000-99999 for timer rules
     const siteLists = await getSiteLists();
     const activeList = siteLists.find(list => list.id === activeTimer.siteListId);
     
     if (activeList && activeList.sites) {
+      let ruleIdCounter = 50000;
+      
       activeList.sites.forEach(site => {
-        const baseId = ruleIdCounter * 10;
-        ruleIdCounter++;
+        const baseId = ruleIdCounter;
+        ruleIdCounter += 500; // Large gap to accommodate allow rules
         
         // Create allow rules for allowed pages (higher priority)
         if (activeList.allowedPages && activeList.allowedPages.length > 0) {
@@ -179,9 +179,13 @@ async function generateRules(sites) {
       });
     }
   } else {
-    // No active timer - use individual site blocking as before
-    sites.forEach((site, index) => {
-      const baseId = (index + 1) * 10;
+    // No active timer - use individual site blocking
+    // Use ID range 1000-49999 for individual site rules
+    let ruleIdCounter = 1000;
+    
+    sites.forEach((site) => {
+      const baseId = ruleIdCounter;
+      ruleIdCounter += 500; // Large gap to accommodate allow rules
       const domain = site.url;
       
       // Create allow rules for whitelisted patterns (higher priority)
@@ -246,25 +250,59 @@ async function generateRules(sites) {
   return rules;
 }
 
+// Mutex for rule updates to prevent race conditions
+let ruleUpdateQueue = Promise.resolve();
+let isUpdatingRules = false;
+
 async function updateRules(newRules) {
-  console.log('Updating rules:', newRules);
-  const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-  const existingIds = existingRules.map(rule => rule.id);
-  console.log('Removing existing rule IDs:', existingIds);
-  
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: existingIds,
-    addRules: newRules
+  // Queue the update to prevent concurrent modifications
+  ruleUpdateQueue = ruleUpdateQueue.then(async () => {
+    if (isUpdatingRules) {
+      console.log('Rule update already in progress, waiting...');
+      // Wait a bit and retry
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return updateRules(newRules);
+    }
+    
+    try {
+      isUpdatingRules = true;
+      console.log('Updating rules:', newRules.length, 'rules');
+      
+      const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+      const existingIds = existingRules.map(rule => rule.id);
+      console.log('Removing existing rule IDs:', existingIds.length, 'rules');
+      
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: existingIds,
+        addRules: newRules
+      });
+      
+      console.log('Rules updated successfully');
+    } catch (error) {
+      console.error('Error updating rules:', error);
+      throw error;
+    } finally {
+      isUpdatingRules = false;
+    }
+  }).catch(error => {
+    console.error('Error in rule update queue:', error);
+    isUpdatingRules = false;
   });
   
-  console.log('Rules updated successfully');
+  return ruleUpdateQueue;
 }
 
 console.log('Background script loaded');
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   try {
-    console.log('Extension installed/reloaded');
+    console.log('Extension installed/reloaded, reason:', details.reason);
+    
+    // Run migration on install or update
+    if (details.reason === 'install' || details.reason === 'update') {
+      await runMigrations();
+    }
+    
     const sites = await getBlockedSites();
     console.log('Sites on install:', sites);
     const rules = await generateRules(sites);
@@ -280,6 +318,42 @@ chrome.runtime.onInstalled.addListener(async () => {
     console.error('Error applying rules on install:', error);
   }
 });
+
+// Migration function to handle data structure changes
+async function runMigrations() {
+  console.log('Running migrations...');
+  
+  try {
+    // Check migration version
+    const result = await chrome.storage.local.get(['migrationVersion']);
+    const currentVersion = result.migrationVersion || 0;
+    
+    // Migration 1: Add whitelist property to sites
+    if (currentVersion < 1) {
+      console.log('Running migration 1: Adding whitelist property');
+      const sites = await getBlockedSites();
+      let needsSave = false;
+      
+      sites.forEach(site => {
+        if (!site.whitelist) {
+          site.whitelist = [];
+          needsSave = true;
+        }
+      });
+      
+      if (needsSave) {
+        await saveBlockedSites(sites);
+        console.log('Migration 1 complete');
+      }
+    }
+    
+    // Update migration version
+    await chrome.storage.local.set({ migrationVersion: 1 });
+    console.log('All migrations complete');
+  } catch (error) {
+    console.error('Error running migrations:', error);
+  }
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Received message:', request.action);
@@ -400,7 +474,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       return true;
     case 'CHECK_TEMPORARY_WHITELIST':
-      handleCheckTemporaryWhitelist(request.payload, sendResponse);
+      handleCheckTemporaryWhitelist(request.payload, sendResponse).catch(error => {
+        console.error('Error in CHECK_TEMPORARY_WHITELIST:', error);
+        sendResponse({ isTemporarilyDisabled: false });
+      });
       return true;
     default:
       console.log('Unknown action:', request.action);
@@ -793,24 +870,50 @@ async function handleStopTimer(sendResponse) {
   }
 }
 
-// Temporary whitelist storage
-let temporaryWhitelist = new Map();
+// Temporary whitelist storage functions (using chrome.storage.session for persistence)
+async function getTemporaryWhitelist() {
+  const result = await chrome.storage.session.get(['temporaryWhitelist']);
+  return result.temporaryWhitelist || {};
+}
+
+async function setTemporaryWhitelist(whitelist) {
+  await chrome.storage.session.set({ temporaryWhitelist: whitelist });
+}
+
+async function cleanupExpiredWhitelist(whitelist) {
+  const now = Date.now();
+  const cleaned = {};
+  let hasExpired = false;
+  
+  for (const [domain, expireTime] of Object.entries(whitelist)) {
+    if (now < expireTime) {
+      cleaned[domain] = expireTime;
+    } else {
+      hasExpired = true;
+    }
+  }
+  
+  if (hasExpired) {
+    await setTemporaryWhitelist(cleaned);
+  }
+  
+  return cleaned;
+}
 
 async function handleDisableAudioModeTemporarily(payload, sendResponse) {
   try {
     const { url } = payload;
     const domain = url.replace('www.', '');
     
+    // Get current whitelist and clean up expired entries
+    let whitelist = await getTemporaryWhitelist();
+    whitelist = await cleanupExpiredWhitelist(whitelist);
+    
     // Add to temporary whitelist for 1 minute
     const expireTime = Date.now() + 60000; // 1 minute
-    temporaryWhitelist.set(domain, expireTime);
+    whitelist[domain] = expireTime;
     
-    // Clean up expired entries
-    for (const [key, value] of temporaryWhitelist) {
-      if (Date.now() > value) {
-        temporaryWhitelist.delete(key);
-      }
-    }
+    await setTemporaryWhitelist(whitelist);
     
     console.log('Added to temporary whitelist:', domain, 'expires at:', new Date(expireTime));
     sendResponse({ success: true });
@@ -820,19 +923,16 @@ async function handleDisableAudioModeTemporarily(payload, sendResponse) {
   }
 }
 
-function handleCheckTemporaryWhitelist(payload, sendResponse) {
+async function handleCheckTemporaryWhitelist(payload, sendResponse) {
   try {
     const { url } = payload;
     const domain = url.replace('www.', '');
     
-    // Clean up expired entries
-    for (const [key, value] of temporaryWhitelist) {
-      if (Date.now() > value) {
-        temporaryWhitelist.delete(key);
-      }
-    }
+    // Get current whitelist and clean up expired entries
+    let whitelist = await getTemporaryWhitelist();
+    whitelist = await cleanupExpiredWhitelist(whitelist);
     
-    const isTemporarilyDisabled = temporaryWhitelist.has(domain);
+    const isTemporarilyDisabled = domain in whitelist && Date.now() < whitelist[domain];
     sendResponse({ isTemporarilyDisabled });
   } catch (error) {
     console.error('Error in handleCheckTemporaryWhitelist:', error);
@@ -861,3 +961,29 @@ async function updateExtensionIcon(isTimerActive) {
     console.error('Error updating extension icon/badge:', error);
   }
 }
+
+// Alarm listener for automatic timer expiration
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  console.log('Alarm triggered:', alarm.name);
+  
+  if (alarm.name === 'focusTimerExpiration') {
+    console.log('Focus timer expired - cleaning up');
+    
+    try {
+      // Stop the timer
+      await stopTimer();
+      
+      // Update blocking rules to revert to individual sites
+      const sites = await getBlockedSites();
+      const rules = await generateRules(sites);
+      await updateRules(rules);
+      
+      // Update extension icon
+      await updateExtensionIcon(false);
+      
+      console.log('Timer expiration handled successfully');
+    } catch (error) {
+      console.error('Error handling timer expiration:', error);
+    }
+  }
+});

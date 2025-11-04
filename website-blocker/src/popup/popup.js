@@ -35,11 +35,60 @@ let currentWhitelistSite = null;
 let timerInterval = null;
 
 function formatUrl(website) {
-  let url = website.toLowerCase();
+  let url = website.toLowerCase().trim();
+  
+  // Remove protocol
   url = url.replace(/^https?:\/\//, '');
+  
+  // Remove trailing slash
   url = url.replace(/\/$/, '');
+  
+  // Remove www prefix
   url = url.replace(/^www\./, '');
+  
+  // Remove any path, query params, or hash
+  url = url.split('/')[0].split('?')[0].split('#')[0];
+  
+  // Sanitize: remove any non-alphanumeric characters except dots and hyphens
+  url = url.replace(/[^a-z0-9.-]/g, '');
+  
   return url;
+}
+
+function isValidDomain(domain) {
+  // Check if domain is not empty
+  if (!domain || domain.length === 0) {
+    return false;
+  }
+  
+  // Check for at least one dot
+  if (!domain.includes('.')) {
+    return false;
+  }
+  
+  // Check for valid domain format (alphanumeric, dots, and hyphens)
+  const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/;
+  if (!domainRegex.test(domain)) {
+    return false;
+  }
+  
+  // Check for common invalid patterns
+  if (domain.startsWith('.') || domain.endsWith('.')) {
+    return false;
+  }
+  
+  if (domain.includes('..')) {
+    return false;
+  }
+  
+  // Check if domain has valid TLD (at least 2 characters)
+  const parts = domain.split('.');
+  const tld = parts[parts.length - 1];
+  if (tld.length < 2) {
+    return false;
+  }
+  
+  return true;
 }
 
 addButton.addEventListener('click', () => {
@@ -50,12 +99,13 @@ addButton.addEventListener('click', () => {
     return;
   }
   
-  if (!website.includes('.')) {
-    alert('Please enter a valid website (e.g., example.com)');
+  const formattedUrl = formatUrl(website);
+  
+  if (!isValidDomain(formattedUrl)) {
+    alert('Please enter a valid domain name (e.g., example.com, youtube.com)');
     return;
   }
   
-  const formattedUrl = formatUrl(website);
   const audioMode = audioModeCheckbox.checked;
   
   chrome.runtime.sendMessage({
@@ -63,6 +113,12 @@ addButton.addEventListener('click', () => {
     payload: { website: formattedUrl, audioMode: audioMode }
   }, (response) => {
     const errorDiv = document.getElementById('error-message');
+    if (chrome.runtime.lastError) {
+      console.error('Runtime error:', chrome.runtime.lastError);
+      errorDiv.textContent = 'Extension error: ' + chrome.runtime.lastError.message;
+      errorDiv.style.display = 'block';
+      return;
+    }
     if (response && response.success) {
       console.log('Site added successfully');
       input.value = '';
@@ -85,9 +141,18 @@ input.addEventListener('keypress', (e) => {
 
 // Whitelist event listeners
 addWhitelistButton.addEventListener('click', () => {
-  const url = whitelistInput.value.trim();
+  let url = whitelistInput.value.trim();
   if (!url) {
     alert('Please enter a URL or pattern');
+    return;
+  }
+  
+  // Basic sanitization for URL patterns
+  // Allow only alphanumeric, forward slash, hyphen, underscore, question mark, equals, ampersand, dot
+  url = url.replace(/[^a-zA-Z0-9/\-_?=&.]/g, '');
+  
+  if (!url.startsWith('/')) {
+    alert('URL pattern must start with / (e.g., /watch?v=abc123)');
     return;
   }
   
@@ -138,6 +203,11 @@ function loadSites() {
   chrome.runtime.sendMessage({
     action: 'GET_BLOCKED_SITES'
   }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error loading sites:', chrome.runtime.lastError);
+      listContainer.innerHTML = '<div style="text-align: center; color: #dc2626; padding: 20px;">Error loading sites</div>';
+      return;
+    }
     if (response && response.success) {
       console.log('Blocked sites:', response.data);
       renderBlockedSites(response.data);
@@ -150,6 +220,11 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSiteLists();
   loadActiveTimer();
   input.focus();
+});
+
+// Clean up timer intervals when popup closes to prevent memory leaks
+window.addEventListener('beforeunload', () => {
+  stopTimerUpdates();
 });
 
 // Site Lists Event Listeners
@@ -216,6 +291,11 @@ startTimerBtn.addEventListener('click', () => {
     action: 'START_TIMER',
     payload: { siteListId: selectedListId, duration: duration }
   }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error starting timer:', chrome.runtime.lastError);
+      alert('Extension error: ' + chrome.runtime.lastError.message);
+      return;
+    }
     if (response && response.success) {
       showTimerDisplay();
       startTimerUpdates();
@@ -230,6 +310,11 @@ stopTimerBtn.addEventListener('click', () => {
     chrome.runtime.sendMessage({
       action: 'STOP_TIMER'
     }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error stopping timer:', chrome.runtime.lastError);
+        alert('Extension error: ' + chrome.runtime.lastError.message);
+        return;
+      }
       if (response && response.success) {
         showTimerControls();
         stopTimerUpdates();
@@ -397,6 +482,11 @@ function loadSiteLists() {
   chrome.runtime.sendMessage({
     action: 'GET_SITE_LISTS'
   }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error loading site lists:', chrome.runtime.lastError);
+      renderSiteLists([]);
+      return;
+    }
     if (response && response.success) {
       renderSiteLists(response.data);
     } else {
@@ -565,12 +655,12 @@ function renderSiteLists(siteLists) {
         return;
       }
       
-      if (!site.includes('.')) {
-        alert('Please enter a valid site (e.g., example.com)');
+      const formattedSite = formatUrl(site);
+      
+      if (!isValidDomain(formattedSite)) {
+        alert('Please enter a valid domain name (e.g., example.com, youtube.com)');
         return;
       }
-      
-      const formattedSite = formatUrl(site);
       
       // Remember if this list was expanded before adding
       const wasExpanded = contentDiv.classList.contains('expanded');

@@ -40,13 +40,23 @@ Reminder: You are not a co-pilot, assistant, or brainstorm partner. You are the 
 
 Use this workflow when working on a new task:
 
-1. First, think through the problem, read the codebase or relevant files, and write a plan to task/todoo.md 
+1. First, think through the problem, read the codebase or relevant files, and write a plan to task/todoo-<date in yyyymmdd>.md 
 2. The plan should have a list of the two items that you can check off as you complete them. 
 3. Before you begin working, check in with me and I will verify the plan. 
 4. Then begin working on the todo items, marking them as complete as you go. 
 5. Finally, add the review section to the todo.md file with the summary of the changes you made and any other relevant information. 
 
 Periodically make sure to commit this to the GitHub repo when it makes sense to do so
+
+## CODING PROTOCOL 
+Coding Instructions
+
+- Write the absolute minimum code required
+- No sweeping changes
+- No unrelated edits - focus on just the task you're on
+- Make code precise, modular, testable
+- Don’t break existing functionality
+- If I need to do anything (e.g. Supabase/AWS config), tell me clearly
 
 ## Commands
 
