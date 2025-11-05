@@ -49,6 +49,26 @@
   </div>
   
   <script>
+    // Periodically check if timer is still active
+    function checkTimerStatus() {
+      chrome.runtime.sendMessage({
+        action: 'GET_ACTIVE_TIMER'
+      }, (response) => {
+        // If no active timer, this page should not be blocking anymore
+        if (response && response.success && !response.data) {
+          console.log('No active timer found, attempting to navigate away...');
+          // Try to go back, or show a message
+          document.getElementById('block-title').textContent = 'Timer Ended';
+          document.getElementById('block-message').innerHTML = 
+            'The focus timer has ended. This site should no longer be blocked.<br><br>' +
+            '<a href="javascript:history.back()">Go Back</a> or try refreshing your browser.';
+        }
+      });
+    }
+    
+    // Check timer status every 5 seconds
+    setInterval(checkTimerStatus, 5000);
+    
     // Check for active timer
     chrome.runtime.sendMessage({
       action: 'GET_ACTIVE_TIMER'
@@ -77,6 +97,7 @@
           const remaining = Math.max(0, timer.duration - (now - timer.startTime));
           
           if (remaining === 0) {
+            console.log('Timer reached 0, reloading page...');
             location.reload();
             return;
           }
@@ -106,11 +127,16 @@
               action: 'STOP_TIMER'
             }, (stopResponse) => {
               if (stopResponse && stopResponse.success) {
+                console.log('Timer stopped successfully, reloading...');
                 location.reload();
               }
             });
           }
         });
+      } else {
+        // No active timer, but we're on the blocked page
+        console.log('No active timer on initial load');
+        checkTimerStatus();
       }
     });
   </script>

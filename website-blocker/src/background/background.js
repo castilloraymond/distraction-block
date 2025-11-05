@@ -36,7 +36,14 @@ async function startTimer(siteListId, duration) {
   await chrome.alarms.create(alarmName, {
     when: Date.now() + duration
   });
-  console.log('Created alarm for timer expiration in', duration, 'ms');
+  console.log('Created alarm for timer expiration in', duration, 'ms at', new Date(Date.now() + duration).toISOString());
+  
+  // Create a periodic backup alarm that checks every minute
+  await chrome.alarms.create('timerExpirationCheck', {
+    delayInMinutes: 1,
+    periodInMinutes: 1
+  });
+  console.log('Created periodic backup alarm');
   
   return timer;
 }
@@ -44,10 +51,10 @@ async function startTimer(siteListId, duration) {
 async function stopTimer() {
   await chrome.storage.local.remove(['activeTimer']);
   
-  // Clear the alarm
-  const alarmName = 'focusTimerExpiration';
-  await chrome.alarms.clear(alarmName);
-  console.log('Cleared timer alarm');
+  // Clear both alarms
+  await chrome.alarms.clear('focusTimerExpiration');
+  await chrome.alarms.clear('timerExpirationCheck');
+  console.log('Cleared timer alarms');
 }
 
 async function isTimerActive() {
@@ -294,6 +301,42 @@ async function updateRules(newRules) {
 
 console.log('Background script loaded');
 
+// Check for expired timers - called on startup and periodically
+async function checkAndCleanExpiredTimer() {
+  try {
+    const timer = await getActiveTimer();
+    if (timer) {
+      const elapsed = Date.now() - timer.startTime;
+      console.log(`Checking timer: elapsed ${elapsed}ms, duration ${timer.duration}ms`);
+      
+      if (elapsed >= timer.duration) {
+        console.log('Found expired timer, cleaning up...');
+        
+        // Clear the alarm
+        await chrome.alarms.clear('focusTimerExpiration');
+        
+        // Remove timer from storage
+        await chrome.storage.local.remove(['activeTimer']);
+        
+        // Update rules to remove timer-based blocking
+        const sites = await getBlockedSites();
+        const rules = await generateRules(sites);
+        await updateRules(rules);
+        
+        // Update icon
+        await updateExtensionIcon(false);
+        
+        console.log('Expired timer cleaned up successfully');
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    console.error('Error checking for expired timer:', error);
+    return false;
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   try {
     console.log('Extension installed/reloaded, reason:', details.reason);
@@ -302,6 +345,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install' || details.reason === 'update') {
       await runMigrations();
     }
+    
+    // Check for expired timers
+    await checkAndCleanExpiredTimer();
     
     const sites = await getBlockedSites();
     console.log('Sites on install:', sites);
@@ -316,6 +362,16 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await updateExtensionIcon(activeTimer && isActive);
   } catch (error) {
     console.error('Error applying rules on install:', error);
+  }
+});
+
+// Check for expired timers when service worker starts up
+chrome.runtime.onStartup.addListener(async () => {
+  try {
+    console.log('Service worker started up');
+    await checkAndCleanExpiredTimer();
+  } catch (error) {
+    console.error('Error on startup:', error);
   }
 });
 
@@ -807,6 +863,14 @@ async function handleRemoveAllowedPage(payload, sendResponse) {
 // Timer Handler Functions
 async function handleGetActiveTimer(sendResponse) {
   try {
+    // First check and clean any expired timers
+    const wasExpired = await checkAndCleanExpiredTimer();
+    if (wasExpired) {
+      console.log('Timer was expired, returning null');
+      sendResponse({ success: true, data: null });
+      return;
+    }
+    
     const timer = await getActiveTimer();
     const isActive = await isTimerActive();
     
@@ -964,26 +1028,43 @@ async function updateExtensionIcon(isTimerActive) {
 
 // Alarm listener for automatic timer expiration
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  console.log('Alarm triggered:', alarm.name);
+  console.log('Alarm triggered:', alarm.name, 'at', new Date().toISOString());
   
-  if (alarm.name === 'focusTimerExpiration') {
-    console.log('Focus timer expired - cleaning up');
+  if (alarm.name === 'focusTimerExpiration' || alarm.name === 'timerExpirationCheck') {
+    if (alarm.name === 'focusTimerExpiration') {
+      console.log('Focus timer expired - cleaning up');
+    } else {
+      console.log('Periodic timer check running');
+    }
     
     try {
-      // Stop the timer
-      await stopTimer();
+      // Check if timer has expired and clean it up if needed
+      const wasExpired = await checkAndCleanExpiredTimer();
       
-      // Update blocking rules to revert to individual sites
-      const sites = await getBlockedSites();
-      const rules = await generateRules(sites);
-      await updateRules(rules);
-      
-      // Update extension icon
-      await updateExtensionIcon(false);
-      
-      console.log('Timer expiration handled successfully');
+      if (wasExpired) {
+        console.log('Timer was expired and cleaned up');
+        // Clear the periodic check alarm since timer is done
+        await chrome.alarms.clear('timerExpirationCheck');
+        await chrome.alarms.clear('focusTimerExpiration');
+      } else if (alarm.name === 'focusTimerExpiration') {
+        // Main alarm fired but timer wasn't expired yet - this shouldn't happen
+        console.warn('focusTimerExpiration alarm fired but timer not expired');
+      } else {
+        // Periodic check - timer is still active
+        console.log('Periodic check: timer still active');
+      }
     } catch (error) {
-      console.error('Error handling timer expiration:', error);
+      console.error('Error handling alarm:', error);
+      // Even on error, try to clear the timer if it's the expiration alarm
+      if (alarm.name === 'focusTimerExpiration') {
+        try {
+          await chrome.storage.local.remove(['activeTimer']);
+          await chrome.alarms.clear('focusTimerExpiration');
+          await chrome.alarms.clear('timerExpirationCheck');
+        } catch (cleanupError) {
+          console.error('Error during cleanup:', cleanupError);
+        }
+      }
     }
   }
 });
