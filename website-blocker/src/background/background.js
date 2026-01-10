@@ -311,21 +311,37 @@ async function checkAndCleanExpiredTimer() {
       
       if (elapsed >= timer.duration) {
         console.log('Found expired timer, cleaning up...');
-        
-        // Clear the alarm
+
+        // Clear both alarms first
         await chrome.alarms.clear('focusTimerExpiration');
-        
+        await chrome.alarms.clear('timerExpirationCheck');
+
         // Remove timer from storage
         await chrome.storage.local.remove(['activeTimer']);
-        
+
         // Update rules to remove timer-based blocking
-        const sites = await getBlockedSites();
-        const rules = await generateRules(sites);
-        await updateRules(rules);
-        
+        // This is critical - must happen after timer is removed so generateRules sees no active timer
+        try {
+          const sites = await getBlockedSites();
+          const rules = await generateRules(sites);
+          await updateRules(rules);
+          console.log('Rules updated successfully after timer expiration');
+        } catch (ruleError) {
+          console.error('Error updating rules after timer expiration:', ruleError);
+          // Retry rule update once
+          try {
+            const sites = await getBlockedSites();
+            const rules = await generateRules(sites);
+            await updateRules(rules);
+            console.log('Rules updated successfully on retry');
+          } catch (retryError) {
+            console.error('Failed to update rules on retry:', retryError);
+          }
+        }
+
         // Update icon
         await updateExtensionIcon(false);
-        
+
         console.log('Expired timer cleaned up successfully');
         return true;
       }
@@ -1055,12 +1071,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       }
     } catch (error) {
       console.error('Error handling alarm:', error);
-      // Even on error, try to clear the timer if it's the expiration alarm
+      // Even on error, try to clear the timer and update rules
       if (alarm.name === 'focusTimerExpiration') {
         try {
           await chrome.storage.local.remove(['activeTimer']);
           await chrome.alarms.clear('focusTimerExpiration');
           await chrome.alarms.clear('timerExpirationCheck');
+          // Critical: Update rules to remove timer-based blocking
+          const sites = await getBlockedSites();
+          const rules = await generateRules(sites);
+          await updateRules(rules);
+          await updateExtensionIcon(false);
+          console.log('Emergency cleanup completed - rules updated');
         } catch (cleanupError) {
           console.error('Error during cleanup:', cleanupError);
         }
