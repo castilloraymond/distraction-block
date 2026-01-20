@@ -634,7 +634,18 @@ function renderSiteLists(siteLists) {
     
     const controlsDiv = document.createElement('div');
     controlsDiv.className = 'list-controls';
-    
+
+    // Schedule button in header for easy access
+    const scheduleBtn = document.createElement('button');
+    scheduleBtn.className = 'btn btn-sm';
+    scheduleBtn.style.cssText = 'background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; font-size: 10px; padding: 4px 8px;';
+    scheduleBtn.textContent = list.schedule && list.schedule.enabled ? '⏰ Edit' : '⏰ Schedule';
+    scheduleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openScheduleModal(list);
+    });
+    controlsDiv.appendChild(scheduleBtn);
+
     const expandBtn = document.createElement('button');
     expandBtn.className = 'expand-btn';
     expandBtn.textContent = '▼';
