@@ -103,8 +103,33 @@ async function updateSiteList(id, updates) {
   throw new Error('Site list not found');
 }
 
+// Schedule helper functions
+function isScheduleActive(schedule) {
+  if (!schedule || !schedule.enabled) return false;
+
+  const now = new Date();
+  const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const currentDay = dayNames[now.getDay()];
+
+  if (!schedule.days || !schedule.days.includes(currentDay)) return false;
+
+  const [startHour, startMin] = schedule.startTime.split(':').map(Number);
+  const [endHour, endMin] = schedule.endTime.split(':').map(Number);
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = startHour * 60 + startMin;
+  const endMinutes = endHour * 60 + endMin;
+
+  return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+}
+
+async function getActiveScheduledLists() {
+  const siteLists = await getSiteLists();
+  return siteLists.filter(list => list.schedule && isScheduleActive(list.schedule));
+}
+
 // Rules functions
-// Rule ID ranges: Timer rules: 50000-99999, Individual site rules: 1000-49999
+// Rule ID ranges: Timer rules: 50000-99999, Individual site rules: 1000-49999, Scheduled rules: 100000-149999
 async function generateRules(sites) {
   const redirectUrl = chrome.runtime.getURL('src/pages/blocked.html');
   console.log('Redirect URL:', redirectUrl);
@@ -120,14 +145,14 @@ async function generateRules(sites) {
     // Use ID range 50000-99999 for timer rules
     const siteLists = await getSiteLists();
     const activeList = siteLists.find(list => list.id === activeTimer.siteListId);
-    
+
     if (activeList && activeList.sites) {
       let ruleIdCounter = 50000;
-      
+
       activeList.sites.forEach(site => {
         const baseId = ruleIdCounter;
         ruleIdCounter += 500; // Large gap to accommodate allow rules
-        
+
         // Create allow rules for allowed pages (higher priority)
         if (activeList.allowedPages && activeList.allowedPages.length > 0) {
           activeList.allowedPages.forEach((pattern, patternIndex) => {
@@ -151,16 +176,16 @@ async function generateRules(sites) {
             });
           });
         }
-        
+
         // For timer lists, show audio mode only for YouTube, block others normally
         const isYouTube = site.includes('youtube.com');
-        
+
         if (!activeList.audioMode || !isYouTube) {
           // Regular blocking rules for non-YouTube sites or non-audio mode
           rules.push({
             id: baseId,
             priority: 1,
-            action: { 
+            action: {
               type: "redirect",
               redirect: { url: redirectUrl }
             },
@@ -169,11 +194,11 @@ async function generateRules(sites) {
               resourceTypes: ["main_frame"]
             }
           });
-          
+
           rules.push({
             id: baseId + 1,
             priority: 1,
-            action: { 
+            action: {
               type: "redirect",
               redirect: { url: redirectUrl }
             },
@@ -185,7 +210,82 @@ async function generateRules(sites) {
         }
       });
     }
-  } else {
+  }
+
+  // Check for active scheduled lists (always check, even when timer is active)
+  // Use ID range 100000-149999 for scheduled rules
+  const scheduledLists = await getActiveScheduledLists();
+  if (scheduledLists.length > 0) {
+    let ruleIdCounter = 100000;
+
+    scheduledLists.forEach(list => {
+      // Skip if this list is already being blocked by timer
+      if (activeTimer && isActive && list.id === activeTimer.siteListId) {
+        return;
+      }
+
+      list.sites.forEach(site => {
+        const baseId = ruleIdCounter;
+        ruleIdCounter += 500;
+
+        // Create allow rules for allowed pages (higher priority)
+        if (list.allowedPages && list.allowedPages.length > 0) {
+          list.allowedPages.forEach((pattern, patternIndex) => {
+            rules.push({
+              id: baseId + 100 + patternIndex,
+              priority: 2,
+              action: { type: "allow" },
+              condition: {
+                urlFilter: `*://${site}${pattern}*`,
+                resourceTypes: ["main_frame"]
+              }
+            });
+            rules.push({
+              id: baseId + 200 + patternIndex,
+              priority: 2,
+              action: { type: "allow" },
+              condition: {
+                urlFilter: `*://www.${site}${pattern}*`,
+                resourceTypes: ["main_frame"]
+              }
+            });
+          });
+        }
+
+        const isYouTube = site.includes('youtube.com');
+
+        if (!list.audioMode || !isYouTube) {
+          rules.push({
+            id: baseId,
+            priority: 1,
+            action: {
+              type: "redirect",
+              redirect: { url: redirectUrl }
+            },
+            condition: {
+              urlFilter: `*://${site}/*`,
+              resourceTypes: ["main_frame"]
+            }
+          });
+
+          rules.push({
+            id: baseId + 1,
+            priority: 1,
+            action: {
+              type: "redirect",
+              redirect: { url: redirectUrl }
+            },
+            condition: {
+              urlFilter: `*://www.${site}/*`,
+              resourceTypes: ["main_frame"]
+            }
+          });
+        }
+      });
+    });
+  }
+
+  if (!(activeTimer && isActive)) {
     // No active timer - use individual site blocking
     // Use ID range 1000-49999 for individual site rules
     let ruleIdCounter = 1000;
@@ -301,6 +401,40 @@ async function updateRules(newRules) {
 
 console.log('Background script loaded');
 
+// Track last known schedule state to detect transitions
+let lastScheduleState = null;
+
+// Check if schedule state has changed and update rules if needed
+async function checkScheduleTransitions() {
+  try {
+    const scheduledLists = await getActiveScheduledLists();
+    const currentState = scheduledLists.map(l => l.id).sort().join(',');
+
+    if (lastScheduleState !== null && lastScheduleState !== currentState) {
+      console.log('Schedule state changed, updating rules...');
+      const sites = await getBlockedSites();
+      const rules = await generateRules(sites);
+      await updateRules(rules);
+      console.log('Rules updated for schedule transition');
+    }
+
+    lastScheduleState = currentState;
+    return currentState !== '';
+  } catch (error) {
+    console.error('Error checking schedule transitions:', error);
+    return false;
+  }
+}
+
+// Set up the schedule check alarm
+async function setupScheduleAlarm() {
+  await chrome.alarms.create('scheduleCheck', {
+    delayInMinutes: 1,
+    periodInMinutes: 1
+  });
+  console.log('Created schedule check alarm');
+}
+
 // Check for expired timers - called on startup and periodically
 async function checkAndCleanExpiredTimer() {
   try {
@@ -356,22 +490,28 @@ async function checkAndCleanExpiredTimer() {
 chrome.runtime.onInstalled.addListener(async (details) => {
   try {
     console.log('Extension installed/reloaded, reason:', details.reason);
-    
+
     // Run migration on install or update
     if (details.reason === 'install' || details.reason === 'update') {
       await runMigrations();
     }
-    
+
     // Check for expired timers
     await checkAndCleanExpiredTimer();
-    
+
+    // Set up schedule check alarm
+    await setupScheduleAlarm();
+
+    // Initialize schedule state
+    await checkScheduleTransitions();
+
     const sites = await getBlockedSites();
     console.log('Sites on install:', sites);
     const rules = await generateRules(sites);
     console.log('Rules generated on install:', rules);
     await updateRules(rules);
     console.log('Rules applied on install');
-    
+
     // Set correct icon based on timer state
     const activeTimer = await getActiveTimer();
     const isActive = await isTimerActive();
@@ -386,6 +526,17 @@ chrome.runtime.onStartup.addListener(async () => {
   try {
     console.log('Service worker started up');
     await checkAndCleanExpiredTimer();
+
+    // Set up schedule check alarm
+    await setupScheduleAlarm();
+
+    // Initialize schedule state and update rules if schedules are active
+    await checkScheduleTransitions();
+
+    // Regenerate rules to catch any active schedules
+    const sites = await getBlockedSites();
+    const rules = await generateRules(sites);
+    await updateRules(rules);
   } catch (error) {
     console.error('Error on startup:', error);
   }
@@ -549,6 +700,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       handleCheckTemporaryWhitelist(request.payload, sendResponse).catch(error => {
         console.error('Error in CHECK_TEMPORARY_WHITELIST:', error);
         sendResponse({ isTemporarilyDisabled: false });
+      });
+      return true;
+    case 'GET_ACTIVE_SCHEDULED_LISTS':
+      handleGetActiveScheduledLists(sendResponse).catch(error => {
+        console.error('Error in GET_ACTIVE_SCHEDULED_LISTS:', error);
+        sendResponse({ success: false, error: error.message });
       });
       return true;
     default:
@@ -876,6 +1033,17 @@ async function handleRemoveAllowedPage(payload, sendResponse) {
   }
 }
 
+// Schedule Handler Functions
+async function handleGetActiveScheduledLists(sendResponse) {
+  try {
+    const scheduledLists = await getActiveScheduledLists();
+    sendResponse({ success: true, data: scheduledLists });
+  } catch (error) {
+    console.error('Error in handleGetActiveScheduledLists:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
 // Timer Handler Functions
 async function handleGetActiveTimer(sendResponse) {
   try {
@@ -1045,10 +1213,20 @@ async function updateExtensionIcon(isTimerActive) {
   }
 }
 
-// Alarm listener for automatic timer expiration
+// Alarm listener for automatic timer expiration and schedule checks
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   console.log('Alarm triggered:', alarm.name, 'at', new Date().toISOString());
-  
+
+  // Handle schedule check alarm
+  if (alarm.name === 'scheduleCheck') {
+    try {
+      await checkScheduleTransitions();
+    } catch (error) {
+      console.error('Error in schedule check:', error);
+    }
+    return;
+  }
+
   if (alarm.name === 'focusTimerExpiration' || alarm.name === 'timerExpirationCheck') {
     if (alarm.name === 'focusTimerExpiration') {
       console.log('Focus timer expired - cleaning up');

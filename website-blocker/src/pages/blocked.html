@@ -44,6 +44,13 @@
         <button id="end-timer-btn" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 8px;">End Timer Early</button>
       </div>
     </div>
+    <div id="schedule-info" style="display: none;">
+      <div style="background: #fffbeb; padding: 12px; border-radius: 6px; margin: 16px 0; border: 1px solid #fcd34d;">
+        <h3 style="margin: 0 0 8px 0; color: #d97706;">⏰ Scheduled Block Active</h3>
+        <div id="schedule-list-name" style="font-size: 14px; color: #666;"></div>
+        <div id="schedule-time-range" style="font-size: 14px; color: #92400e; font-weight: 500; margin: 8px 0;"></div>
+      </div>
+    </div>
     <p id="block-message">This site is blocked to help you focus and stay productive.</p>
     <p>Use the extension popup to manage your blocked sites.</p>
   </div>
@@ -78,7 +85,7 @@
         document.getElementById('block-title').textContent = 'Timer Active - Site Blocked';
         document.getElementById('timer-info').style.display = 'block';
         document.getElementById('block-message').textContent = 'This site is blocked as part of your focus session.';
-        
+
         // Get list name
         chrome.runtime.sendMessage({
           action: 'GET_SITE_LISTS'
@@ -90,36 +97,36 @@
             }
           }
         });
-        
+
         // Update remaining time
         function updateRemainingTime() {
           const now = Date.now();
           const remaining = Math.max(0, timer.duration - (now - timer.startTime));
-          
+
           if (remaining === 0) {
             console.log('Timer reached 0, reloading page...');
             location.reload();
             return;
           }
-          
+
           const totalSeconds = Math.floor(remaining / 1000);
           const hours = Math.floor(totalSeconds / 3600);
           const minutes = Math.floor((totalSeconds % 3600) / 60);
           const seconds = totalSeconds % 60;
-          
+
           let timeString;
           if (hours > 0) {
             timeString = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           } else {
             timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
           }
-          
+
           document.getElementById('timer-remaining').textContent = `Time Remaining: ${timeString}`;
         }
-        
+
         updateRemainingTime();
         setInterval(updateRemainingTime, 1000);
-        
+
         // Handle end timer button
         document.getElementById('end-timer-btn').addEventListener('click', () => {
           if (confirm('Are you sure you want to end the focus timer early?')) {
@@ -134,9 +141,24 @@
           }
         });
       } else {
-        // No active timer, but we're on the blocked page
-        console.log('No active timer on initial load');
-        checkTimerStatus();
+        // No active timer, check for active schedules
+        chrome.runtime.sendMessage({
+          action: 'GET_ACTIVE_SCHEDULED_LISTS'
+        }, (scheduleResponse) => {
+          if (scheduleResponse && scheduleResponse.success && scheduleResponse.data && scheduleResponse.data.length > 0) {
+            const scheduledList = scheduleResponse.data[0];
+            document.getElementById('block-title').textContent = 'Scheduled Block Active';
+            document.getElementById('schedule-info').style.display = 'block';
+            document.getElementById('block-message').textContent = 'This site is blocked according to your schedule.';
+            document.getElementById('schedule-list-name').textContent = `Schedule: ${scheduledList.name}`;
+            document.getElementById('schedule-time-range').textContent =
+              `${scheduledList.schedule.startTime} - ${scheduledList.schedule.endTime}`;
+          } else {
+            // No active timer or schedule
+            console.log('No active timer or schedule on initial load');
+            checkTimerStatus();
+          }
+        });
       }
     });
   </script>

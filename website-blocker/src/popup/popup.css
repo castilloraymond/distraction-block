@@ -705,3 +705,87 @@ input[type="checkbox"] {
 .justify-between { justify-content: space-between; }
 .gap-xs { gap: var(--spacing-xs); }
 .gap-sm { gap: var(--spacing-sm); }
+
+/* Schedule Styles */
+.schedule-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.day-checkbox {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--color-gray-600);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-gray-100);
+}
+
+.day-checkbox input {
+  margin-right: 2px;
+}
+
+.day-checkbox:has(input:checked) {
+  background: var(--color-primary);
+  color: white;
+}
+
+.schedule-time-row {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.schedule-time-row > div {
+  flex: 1;
+}
+
+.schedule-time-row input[type="time"] {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.badge-schedule {
+  background: #fef3c7;
+  color: var(--color-warning);
+}
+
+.badge-schedule-active {
+  background: #dcfce7;
+  color: var(--color-success);
+}
+
+.schedule-btn {
+  background: none;
+  border: 1px solid var(--color-gray-300);
+  color: var(--color-gray-600);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.schedule-btn:hover {
+  background: var(--color-gray-100);
+  border-color: var(--color-gray-400);
+}
+
+.schedule-info {
+  font-size: 10px;
+  color: var(--color-gray-500);
+  margin-top: var(--spacing-xs);
+}
+
+.schedule-section {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-gray-200);
+}

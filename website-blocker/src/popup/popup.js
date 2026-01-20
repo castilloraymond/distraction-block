@@ -33,6 +33,16 @@ const stopTimerBtn = document.getElementById('stop-timer-btn');
 
 let currentWhitelistSite = null;
 let timerInterval = null;
+let currentScheduleListId = null;
+
+// Schedule Modal Elements
+const editScheduleModal = document.getElementById('edit-schedule-modal');
+const scheduleEnabledCheckbox = document.getElementById('schedule-enabled-checkbox');
+const scheduleOptions = document.getElementById('schedule-options');
+const scheduleStartTime = document.getElementById('schedule-start-time');
+const scheduleEndTime = document.getElementById('schedule-end-time');
+const scheduleSaveBtn = document.getElementById('schedule-save');
+const scheduleCancelBtn = document.getElementById('schedule-cancel');
 
 function formatUrl(website) {
   let url = website.toLowerCase().trim();
@@ -268,6 +278,65 @@ listNameInput.addEventListener('keypress', (e) => {
     createListConfirm.click();
   }
 });
+
+// Schedule Modal Event Listeners
+scheduleEnabledCheckbox.addEventListener('change', () => {
+  scheduleOptions.style.display = scheduleEnabledCheckbox.checked ? 'block' : 'none';
+});
+
+scheduleCancelBtn.addEventListener('click', () => {
+  editScheduleModal.style.display = 'none';
+  currentScheduleListId = null;
+});
+
+scheduleSaveBtn.addEventListener('click', () => {
+  if (!currentScheduleListId) return;
+
+  const enabled = scheduleEnabledCheckbox.checked;
+  const days = [];
+  document.querySelectorAll('.schedule-days input:checked').forEach(cb => {
+    days.push(cb.value);
+  });
+
+  const schedule = {
+    enabled: enabled,
+    days: days,
+    startTime: scheduleStartTime.value,
+    endTime: scheduleEndTime.value
+  };
+
+  chrome.runtime.sendMessage({
+    action: 'UPDATE_SITE_LIST',
+    payload: { id: currentScheduleListId, updates: { schedule: schedule } }
+  }, (response) => {
+    if (response && response.success) {
+      editScheduleModal.style.display = 'none';
+      currentScheduleListId = null;
+      loadSiteLists();
+    } else {
+      alert('Failed to save schedule: ' + (response?.error || 'Unknown error'));
+    }
+  });
+});
+
+function openScheduleModal(list) {
+  currentScheduleListId = list.id;
+
+  // Reset and populate form
+  const schedule = list.schedule || { enabled: false, days: [], startTime: '06:00', endTime: '11:00' };
+
+  scheduleEnabledCheckbox.checked = schedule.enabled;
+  scheduleOptions.style.display = schedule.enabled ? 'block' : 'none';
+  scheduleStartTime.value = schedule.startTime || '06:00';
+  scheduleEndTime.value = schedule.endTime || '11:00';
+
+  // Reset day checkboxes
+  document.querySelectorAll('.schedule-days input').forEach(cb => {
+    cb.checked = schedule.days && schedule.days.includes(cb.value);
+  });
+
+  editScheduleModal.style.display = 'flex';
+}
 
 // Timer Event Listeners
 startTimerBtn.addEventListener('click', () => {
@@ -551,7 +620,15 @@ function renderSiteLists(siteLists) {
       allowedBadge.textContent = `${list.allowedPages.length} allowed`;
       badgesContainer.appendChild(allowedBadge);
     }
-    
+
+    // Add schedule badge
+    if (list.schedule && list.schedule.enabled) {
+      const scheduleBadge = document.createElement('span');
+      scheduleBadge.className = 'badge badge-schedule';
+      scheduleBadge.textContent = '⏰ Scheduled';
+      badgesContainer.appendChild(scheduleBadge);
+    }
+
     headerLeft.appendChild(badgesContainer);
     headerDiv.appendChild(headerLeft);
     
@@ -798,9 +875,45 @@ function renderSiteLists(siteLists) {
     
     allowedPagesSection.appendChild(addPageForm);
     contentDiv.appendChild(allowedPagesSection);
-    
+
+    // Schedule Section
+    const scheduleSection = document.createElement('div');
+    scheduleSection.className = 'schedule-section';
+
+    const scheduleSectionHeader = document.createElement('div');
+    scheduleSectionHeader.className = 'section-header';
+    scheduleSectionHeader.textContent = 'Schedule';
+    scheduleSection.appendChild(scheduleSectionHeader);
+
+    const scheduleContent = document.createElement('div');
+
+    if (list.schedule && list.schedule.enabled) {
+      const scheduleInfo = document.createElement('div');
+      scheduleInfo.className = 'schedule-info';
+      const daysText = list.schedule.days.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ');
+      scheduleInfo.innerHTML = `<strong>Active:</strong> ${daysText}<br>${list.schedule.startTime} - ${list.schedule.endTime}`;
+      scheduleContent.appendChild(scheduleInfo);
+    } else {
+      const noSchedule = document.createElement('div');
+      noSchedule.style.cssText = 'color: #666; font-size: 11px; margin-bottom: 8px;';
+      noSchedule.textContent = 'No schedule configured';
+      scheduleContent.appendChild(noSchedule);
+    }
+
+    const editScheduleBtn = document.createElement('button');
+    editScheduleBtn.className = 'schedule-btn';
+    editScheduleBtn.textContent = list.schedule && list.schedule.enabled ? '✏️ Edit Schedule' : '⏰ Add Schedule';
+    editScheduleBtn.style.marginTop = '8px';
+    editScheduleBtn.addEventListener('click', () => {
+      openScheduleModal(list);
+    });
+    scheduleContent.appendChild(editScheduleBtn);
+
+    scheduleSection.appendChild(scheduleContent);
+    contentDiv.appendChild(scheduleSection);
+
     listDiv.appendChild(contentDiv);
-    
+
     siteListsContainer.appendChild(listDiv);
   });
 }
