@@ -1007,13 +1007,16 @@ async function handleCheckTemporaryWhitelist(payload, sendResponse) {
   try {
     const { url } = payload;
     const domain = url.replace('www.', '');
-    
+
     // Get current whitelist and clean up expired entries
     let whitelist = await getTemporaryWhitelist();
     whitelist = await cleanupExpiredWhitelist(whitelist);
-    
-    const isTemporarilyDisabled = domain in whitelist && Date.now() < whitelist[domain];
-    sendResponse({ isTemporarilyDisabled });
+
+    const expireTime = whitelist[domain];
+    const now = Date.now();
+    const isTemporarilyDisabled = expireTime && now < expireTime;
+    const remainingTime = isTemporarilyDisabled ? expireTime - now : 0;
+    sendResponse({ isTemporarilyDisabled, remainingTime });
   } catch (error) {
     console.error('Error in handleCheckTemporaryWhitelist:', error);
     sendResponse({ isTemporarilyDisabled: false });

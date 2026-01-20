@@ -16,6 +16,14 @@ function checkPageMode() {
   }, (tempResponse) => {
     if (tempResponse && tempResponse.isTemporarilyDisabled) {
       console.log('Audio mode temporarily disabled');
+      // Schedule a page reload when the temporary disable expires
+      if (tempResponse.remainingTime && tempResponse.remainingTime > 0) {
+        console.log('Will re-enable audio mode in', tempResponse.remainingTime, 'ms');
+        setTimeout(() => {
+          console.log('Temporary disable expired, reloading page...');
+          window.location.reload();
+        }, tempResponse.remainingTime + 500); // Add 500ms buffer to ensure expiration
+      }
       return;
     }
     
