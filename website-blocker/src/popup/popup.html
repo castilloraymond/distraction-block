@@ -87,6 +87,48 @@
         </div>
       </div>
     </div>
+
+    <!-- Edit Schedule Modal -->
+    <div id="edit-schedule-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Schedule Blocking</h3>
+        <p style="font-size: 12px; color: #666; margin-bottom: 12px;">Automatically block sites during specific times</p>
+        <div class="mb-md">
+          <label>
+            <input type="checkbox" id="schedule-enabled-checkbox">
+            Enable Schedule
+          </label>
+        </div>
+        <div id="schedule-options" style="display: none;">
+          <div class="mb-sm">
+            <label style="font-size: 12px; font-weight: 500;">Days:</label>
+            <div class="schedule-days">
+              <label class="day-checkbox"><input type="checkbox" value="mon"> Mon</label>
+              <label class="day-checkbox"><input type="checkbox" value="tue"> Tue</label>
+              <label class="day-checkbox"><input type="checkbox" value="wed"> Wed</label>
+              <label class="day-checkbox"><input type="checkbox" value="thu"> Thu</label>
+              <label class="day-checkbox"><input type="checkbox" value="fri"> Fri</label>
+              <label class="day-checkbox"><input type="checkbox" value="sat"> Sat</label>
+              <label class="day-checkbox"><input type="checkbox" value="sun"> Sun</label>
+            </div>
+          </div>
+          <div class="mb-md schedule-time-row">
+            <div>
+              <label style="font-size: 12px; font-weight: 500;">Start Time:</label>
+              <input type="time" id="schedule-start-time" value="06:00">
+            </div>
+            <div>
+              <label style="font-size: 12px; font-weight: 500;">End Time:</label>
+              <input type="time" id="schedule-end-time" value="11:00">
+            </div>
+          </div>
+        </div>
+        <div class="modal-buttons">
+          <button id="schedule-cancel" class="btn btn-secondary">Cancel</button>
+          <button id="schedule-save" class="btn btn-primary">Save Schedule</button>
+        </div>
+      </div>
+    </div>
     
     <!-- Whitelist Section -->
     <section id="whitelist-section" style="display: none;">
