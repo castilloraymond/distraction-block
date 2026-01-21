@@ -404,6 +404,8 @@ input[type="checkbox"] {
   display: flex;
   gap: var(--spacing-xs);
   margin-left: var(--spacing-sm);
+  flex-wrap: wrap;
+  max-width: 110px;
 }
 
 .badge {
@@ -430,6 +432,7 @@ input[type="checkbox"] {
 .list-controls {
   display: flex;
   gap: var(--spacing-xs);
+  flex-shrink: 0;
 }
 
 .expand-btn {
