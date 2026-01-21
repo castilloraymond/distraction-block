@@ -932,6 +932,15 @@ async function handleUpdateSiteList(payload, sendResponse) {
   try {
     const { id, updates } = payload;
     const updatedList = await updateSiteList(id, updates);
+
+    // If schedule was updated, regenerate blocking rules
+    if (updates.schedule !== undefined) {
+      const sites = await getBlockedSites();
+      const rules = await generateRules(sites);
+      await updateRules(rules);
+      console.log('Rules regenerated after schedule update');
+    }
+
     sendResponse({ success: true, data: updatedList });
   } catch (error) {
     console.error('Error in handleUpdateSiteList:', error);
