@@ -128,12 +128,37 @@ async function getActiveScheduledLists() {
   return siteLists.filter(list => list.schedule && isScheduleActive(list.schedule));
 }
 
+// Helper function to generate URL filter patterns for a site
+// x.com requires special handling with multiple pattern variations
+function generateUrlFilters(site) {
+  const patterns = [];
+
+  // Standard patterns for all sites
+  patterns.push(`*://${site}/*`);
+  patterns.push(`*://www.${site}/*`);
+
+  // Special handling for x.com - add additional pattern variations
+  // x.com uses service workers that cache aggressively, so we need more patterns
+  const normalizedSite = site.toLowerCase().trim().replace(/^www\./, '');
+  if (normalizedSite === 'x.com') {
+    patterns.push(`*://*.x.com/*`);      // Catch all subdomains
+    patterns.push(`*://x.com`);           // Without trailing slash
+    patterns.push(`*://www.x.com`);       // www without trailing slash
+    patterns.push(`https://x.com/*`);     // Explicit HTTPS
+    patterns.push(`https://www.x.com/*`); // Explicit HTTPS with www
+    patterns.push(`http://x.com/*`);      // HTTP fallback
+    patterns.push(`http://www.x.com/*`);  // HTTP with www
+  }
+
+  return patterns;
+}
+
 // Rules functions
 // Rule ID ranges: Timer rules: 50000-99999, Individual site rules: 1000-49999, Scheduled rules: 100000-149999
 async function generateRules(sites) {
   const redirectUrl = chrome.runtime.getURL('src/pages/blocked.html');
   console.log('Redirect URL:', redirectUrl);
-  
+
   const rules = [];
   
   // Check for active timer
@@ -156,23 +181,17 @@ async function generateRules(sites) {
         // Create allow rules for allowed pages (higher priority)
         if (activeList.allowedPages && activeList.allowedPages.length > 0) {
           activeList.allowedPages.forEach((pattern, patternIndex) => {
-            rules.push({
-              id: baseId + 100 + patternIndex,
-              priority: 2,
-              action: { type: "allow" },
-              condition: {
-                urlFilter: `*://${site}${pattern}*`,
-                resourceTypes: ["main_frame"]
-              }
-            });
-            rules.push({
-              id: baseId + 200 + patternIndex,
-              priority: 2,
-              action: { type: "allow" },
-              condition: {
-                urlFilter: `*://www.${site}${pattern}*`,
-                resourceTypes: ["main_frame"]
-              }
+            const allowFilters = generateUrlFilters(site);
+            allowFilters.forEach((filter, filterIndex) => {
+              rules.push({
+                id: baseId + 100 + (patternIndex * 10) + filterIndex,
+                priority: 2,
+                action: { type: "allow" },
+                condition: {
+                  urlFilter: filter.replace('/*', pattern + '*'),
+                  resourceTypes: ["main_frame"]
+                }
+              });
             });
           });
         }
@@ -182,30 +201,21 @@ async function generateRules(sites) {
 
         if (!activeList.audioMode || !isYouTube) {
           // Regular blocking rules for non-YouTube sites or non-audio mode
-          rules.push({
-            id: baseId,
-            priority: 1,
-            action: {
-              type: "redirect",
-              redirect: { url: redirectUrl }
-            },
-            condition: {
-              urlFilter: `*://${site}/*`,
-              resourceTypes: ["main_frame"]
-            }
-          });
+          const urlFilters = generateUrlFilters(site);
 
-          rules.push({
-            id: baseId + 1,
-            priority: 1,
-            action: {
-              type: "redirect",
-              redirect: { url: redirectUrl }
-            },
-            condition: {
-              urlFilter: `*://www.${site}/*`,
-              resourceTypes: ["main_frame"]
-            }
+          urlFilters.forEach((filter, index) => {
+            rules.push({
+              id: baseId + index,
+              priority: 1,
+              action: {
+                type: "redirect",
+                redirect: { url: redirectUrl }
+              },
+              condition: {
+                urlFilter: filter,
+                resourceTypes: ["main_frame"]
+              }
+            });
           });
         }
       });
@@ -231,23 +241,17 @@ async function generateRules(sites) {
         // Create allow rules for allowed pages (higher priority)
         if (list.allowedPages && list.allowedPages.length > 0) {
           list.allowedPages.forEach((pattern, patternIndex) => {
-            rules.push({
-              id: baseId + 100 + patternIndex,
-              priority: 2,
-              action: { type: "allow" },
-              condition: {
-                urlFilter: `*://${site}${pattern}*`,
-                resourceTypes: ["main_frame"]
-              }
-            });
-            rules.push({
-              id: baseId + 200 + patternIndex,
-              priority: 2,
-              action: { type: "allow" },
-              condition: {
-                urlFilter: `*://www.${site}${pattern}*`,
-                resourceTypes: ["main_frame"]
-              }
+            const allowFilters = generateUrlFilters(site);
+            allowFilters.forEach((filter, filterIndex) => {
+              rules.push({
+                id: baseId + 100 + (patternIndex * 10) + filterIndex,
+                priority: 2,
+                action: { type: "allow" },
+                condition: {
+                  urlFilter: filter.replace('/*', pattern + '*'),
+                  resourceTypes: ["main_frame"]
+                }
+              });
             });
           });
         }
@@ -255,30 +259,21 @@ async function generateRules(sites) {
         const isYouTube = site.includes('youtube.com');
 
         if (!list.audioMode || !isYouTube) {
-          rules.push({
-            id: baseId,
-            priority: 1,
-            action: {
-              type: "redirect",
-              redirect: { url: redirectUrl }
-            },
-            condition: {
-              urlFilter: `*://${site}/*`,
-              resourceTypes: ["main_frame"]
-            }
-          });
+          const urlFilters = generateUrlFilters(site);
 
-          rules.push({
-            id: baseId + 1,
-            priority: 1,
-            action: {
-              type: "redirect",
-              redirect: { url: redirectUrl }
-            },
-            condition: {
-              urlFilter: `*://www.${site}/*`,
-              resourceTypes: ["main_frame"]
-            }
+          urlFilters.forEach((filter, index) => {
+            rules.push({
+              id: baseId + index,
+              priority: 1,
+              action: {
+                type: "redirect",
+                redirect: { url: redirectUrl }
+              },
+              condition: {
+                urlFilter: filter,
+                resourceTypes: ["main_frame"]
+              }
+            });
           });
         }
       });
@@ -294,61 +289,45 @@ async function generateRules(sites) {
       const baseId = ruleIdCounter;
       ruleIdCounter += 500; // Large gap to accommodate allow rules
       const domain = site.url;
-      
+
       // Create allow rules for whitelisted patterns (higher priority)
       if (site.whitelist && site.whitelist.length > 0) {
         site.whitelist.forEach((pattern, patternIndex) => {
-          rules.push({
-            id: baseId + 100 + patternIndex,
-            priority: 2,
-            action: { type: "allow" },
-            condition: {
-              urlFilter: `*://${domain}${pattern}*`,
-              resourceTypes: ["main_frame"]
-            }
-          });
-          rules.push({
-            id: baseId + 200 + patternIndex,
-            priority: 2,
-            action: { type: "allow" },
-            condition: {
-              urlFilter: `*://www.${domain}${pattern}*`,
-              resourceTypes: ["main_frame"]
-            }
+          const allowFilters = generateUrlFilters(domain);
+          allowFilters.forEach((filter, filterIndex) => {
+            rules.push({
+              id: baseId + 100 + (patternIndex * 10) + filterIndex,
+              priority: 2,
+              action: { type: "allow" },
+              condition: {
+                urlFilter: filter.replace('/*', pattern + '*'),
+                resourceTypes: ["main_frame"]
+              }
+            });
           });
         });
       }
-      
+
       // For individual sites, show audio mode only for YouTube, block others normally
       const isYouTube = domain.includes('youtube.com');
-      
+
       if (!site.audioMode || !isYouTube) {
         // Regular blocking rules for non-YouTube sites or non-audio mode sites
-        rules.push({
-          id: baseId,
-          priority: 1,
-          action: { 
-            type: "redirect",
-            redirect: { url: redirectUrl }
-          },
-          condition: {
-            urlFilter: `*://${domain}/*`,
-            resourceTypes: ["main_frame"]
-          }
-        });
-        
-        // Rule for www version
-        rules.push({
-          id: baseId + 1,
-          priority: 1,
-          action: { 
-            type: "redirect",
-            redirect: { url: redirectUrl }
-          },
-          condition: {
-            urlFilter: `*://www.${domain}/*`,
-            resourceTypes: ["main_frame"]
-          }
+        const urlFilters = generateUrlFilters(domain);
+
+        urlFilters.forEach((filter, index) => {
+          rules.push({
+            id: baseId + index,
+            priority: 1,
+            action: {
+              type: "redirect",
+              redirect: { url: redirectUrl }
+            },
+            condition: {
+              urlFilter: filter,
+              resourceTypes: ["main_frame"]
+            }
+          });
         });
       }
     });
@@ -410,7 +389,15 @@ async function checkScheduleTransitions() {
     const scheduledLists = await getActiveScheduledLists();
     const currentState = scheduledLists.map(l => l.id).sort().join(',');
 
-    if (lastScheduleState !== null && lastScheduleState !== currentState) {
+    // If service worker just started (lastScheduleState is null) AND there are active schedules,
+    // we need to regenerate rules to ensure blocking is active
+    if (lastScheduleState === null && currentState !== '') {
+      console.log('Service worker restarted with active schedules, generating rules...');
+      const sites = await getBlockedSites();
+      const rules = await generateRules(sites);
+      await updateRules(rules);
+      console.log('Rules updated for active schedules after service worker restart');
+    } else if (lastScheduleState !== null && lastScheduleState !== currentState) {
       console.log('Schedule state changed, updating rules...');
       const sites = await getBlockedSites();
       const rules = await generateRules(sites);
@@ -708,6 +695,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: false, error: error.message });
       });
       return true;
+    case 'CHECK_SHOULD_BLOCK':
+      handleCheckShouldBlock(request.payload, sendResponse).catch(error => {
+        console.error('Error in CHECK_SHOULD_BLOCK:', error);
+        sendResponse({ shouldBlock: false });
+      });
+      return true;
     default:
       console.log('Unknown action:', request.action);
       return false;
@@ -773,17 +766,39 @@ async function handleDeleteSite(website, sendResponse) {
 async function handleCheckAudioMode(hostname, sendResponse) {
   try {
     console.log('Checking audio mode for hostname:', hostname);
+    const checkHostname = hostname.replace('www.', '');
+
+    // Check individual blocked sites
     const sites = await getBlockedSites();
     console.log('All sites:', sites);
     const site = sites.find(s => {
       const siteHostname = s.url.replace('www.', '');
-      const checkHostname = hostname.replace('www.', '');
       console.log('Comparing:', siteHostname, 'vs', checkHostname, 'audioMode:', s.audioMode);
       return siteHostname === checkHostname && s.audioMode;
     });
-    
-    console.log('Found audio mode site:', site);
-    sendResponse({ isAudioMode: !!site });
+
+    if (site) {
+      console.log('Found audio mode site in individual sites:', site);
+      sendResponse({ isAudioMode: true });
+      return;
+    }
+
+    // Check active scheduled lists
+    const scheduledLists = await getActiveScheduledLists();
+    console.log('Active scheduled lists:', scheduledLists);
+    const scheduledMatch = scheduledLists.find(list => {
+      if (!list.audioMode) return false;
+      return list.sites.some(s => s.replace('www.', '') === checkHostname);
+    });
+
+    if (scheduledMatch) {
+      console.log('Found audio mode site in scheduled list:', scheduledMatch.name);
+      sendResponse({ isAudioMode: true });
+      return;
+    }
+
+    console.log('No audio mode found for hostname');
+    sendResponse({ isAudioMode: false });
   } catch (error) {
     console.error('Error in handleCheckAudioMode:', error);
     sendResponse({ isAudioMode: false });
@@ -962,8 +977,16 @@ async function handleAddSiteToList(payload, sendResponse) {
     if (!list.sites.includes(site)) {
       list.sites.push(site);
       await saveSiteList(list);
+
+      // Regenerate rules if this list has an active schedule
+      if (list.schedule && isScheduleActive(list.schedule)) {
+        const sites = await getBlockedSites();
+        const rules = await generateRules(sites);
+        await updateRules(rules);
+        console.log('Rules regenerated after adding site to active scheduled list');
+      }
     }
-    
+
     sendResponse({ success: true, data: list });
   } catch (error) {
     console.error('Error in handleAddSiteToList:', error);
@@ -1050,6 +1073,66 @@ async function handleGetActiveScheduledLists(sendResponse) {
   } catch (error) {
     console.error('Error in handleGetActiveScheduledLists:', error);
     sendResponse({ success: false, error: error.message });
+  }
+}
+
+// Check if a site should be blocked (fallback for service worker cached pages)
+async function handleCheckShouldBlock(payload, sendResponse) {
+  try {
+    const { hostname } = payload;
+    const checkHostname = hostname.replace('www.', '').toLowerCase();
+    const isYouTube = checkHostname.includes('youtube.com');
+    const redirectUrl = chrome.runtime.getURL('src/pages/blocked.html');
+
+    // Check active timer first
+    const activeTimer = await getActiveTimer();
+    const timerIsActive = await isTimerActive();
+
+    if (activeTimer && timerIsActive) {
+      const siteLists = await getSiteLists();
+      const activeList = siteLists.find(list => list.id === activeTimer.siteListId);
+
+      if (activeList && activeList.sites) {
+        const siteMatch = activeList.sites.some(site =>
+          site.replace('www.', '').toLowerCase() === checkHostname
+        );
+
+        if (siteMatch) {
+          // If audio mode for YouTube, don't block (content script handles overlay)
+          if (activeList.audioMode && isYouTube) {
+            sendResponse({ shouldBlock: false });
+            return;
+          }
+          // Block non-YouTube sites or non-audio-mode lists
+          sendResponse({ shouldBlock: true, redirectUrl });
+          return;
+        }
+      }
+    }
+
+    // Check active scheduled lists
+    const scheduledLists = await getActiveScheduledLists();
+    for (const list of scheduledLists) {
+      const siteMatch = list.sites.some(site =>
+        site.replace('www.', '').toLowerCase() === checkHostname
+      );
+
+      if (siteMatch) {
+        // If audio mode for YouTube, don't block
+        if (list.audioMode && isYouTube) {
+          sendResponse({ shouldBlock: false });
+          return;
+        }
+        // Block non-YouTube sites or non-audio-mode lists
+        sendResponse({ shouldBlock: true, redirectUrl });
+        return;
+      }
+    }
+
+    sendResponse({ shouldBlock: false });
+  } catch (error) {
+    console.error('Error in handleCheckShouldBlock:', error);
+    sendResponse({ shouldBlock: false });
   }
 }
 

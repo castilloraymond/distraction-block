@@ -1,11 +1,36 @@
 // Audio Mode Content Script
 console.log('Audio mode content script loaded for:', window.location.hostname);
 
-// Wait for page to be ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', checkPageMode);
+// Skip if we're already on the blocked page
+const isBlockedPage = window.location.href.includes('blocked.html');
+if (isBlockedPage) {
+  console.log('On blocked page, skipping checks');
 } else {
-  checkPageMode();
+  // Check immediately if this site should be blocked
+  // This is a fallback for when declarativeNetRequest doesn't catch the request
+  // (e.g., when served from service worker cache)
+  chrome.runtime.sendMessage({
+    action: 'CHECK_SHOULD_BLOCK',
+    payload: { hostname: window.location.hostname }
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error checking block status:', chrome.runtime.lastError);
+      return;
+    }
+
+    if (response && response.shouldBlock && response.redirectUrl) {
+      console.log('Site should be blocked, redirecting...');
+      window.location.replace(response.redirectUrl);
+      return;
+    }
+
+    // If not blocked, proceed with normal page mode checks
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', checkPageMode);
+    } else {
+      checkPageMode();
+    }
+  });
 }
 
 function checkPageMode() {
