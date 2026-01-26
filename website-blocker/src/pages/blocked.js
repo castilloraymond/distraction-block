@@ -3,17 +3,39 @@ function checkTimerStatus() {
   chrome.runtime.sendMessage({
     action: 'GET_ACTIVE_TIMER'
   }, (response) => {
-    // If no active timer, this page should not be blocking anymore
+    // If no active timer, check for active schedules before showing "Timer Ended"
     if (response && response.success && !response.data) {
-      console.log('No active timer found, attempting to navigate away...');
-      // Try to go back, or show a message
-      document.getElementById('block-title').textContent = 'Timer Ended';
-      document.getElementById('block-message').innerHTML =
-        'The focus timer has ended. This site should no longer be blocked.<br><br>' +
-        '<a href="#" id="go-back-link">Go Back</a> or try refreshing your browser.';
-      document.getElementById('go-back-link').addEventListener('click', (e) => {
-        e.preventDefault();
-        history.back();
+      console.log('No active timer found, checking for active schedules...');
+
+      // Check for active schedules
+      chrome.runtime.sendMessage({
+        action: 'GET_ACTIVE_SCHEDULED_LISTS'
+      }, (scheduleResponse) => {
+        if (scheduleResponse && scheduleResponse.success && scheduleResponse.data && scheduleResponse.data.length > 0) {
+          // Schedule is active - show schedule info instead of "Timer Ended"
+          const scheduledList = scheduleResponse.data[0];
+          console.log('Active schedule found:', scheduledList.name);
+          document.getElementById('block-title').textContent = 'Scheduled Block Active';
+          document.getElementById('timer-info').style.display = 'none';
+          document.getElementById('schedule-info').style.display = 'block';
+          document.getElementById('block-message').textContent = 'This site is blocked according to your schedule.';
+          document.getElementById('schedule-list-name').textContent = `Schedule: ${scheduledList.name}`;
+          document.getElementById('schedule-time-range').textContent =
+            `${scheduledList.schedule.startTime} - ${scheduledList.schedule.endTime}`;
+        } else {
+          // No active timer AND no active schedule - show "Timer Ended" message
+          console.log('No active timer or schedule found');
+          document.getElementById('block-title').textContent = 'Timer Ended';
+          document.getElementById('timer-info').style.display = 'none';
+          document.getElementById('schedule-info').style.display = 'none';
+          document.getElementById('block-message').innerHTML =
+            'The focus timer has ended. This site should no longer be blocked.<br><br>' +
+            '<a href="#" id="go-back-link">Go Back</a> or try refreshing your browser.';
+          document.getElementById('go-back-link').addEventListener('click', (e) => {
+            e.preventDefault();
+            history.back();
+          });
+        }
       });
     }
   });

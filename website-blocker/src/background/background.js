@@ -373,8 +373,10 @@ async function updateRules(newRules) {
   }).catch(error => {
     console.error('Error in rule update queue:', error);
     isUpdatingRules = false;
+    // Re-throw so callers know the update failed
+    throw error;
   });
-  
+
   return ruleUpdateQueue;
 }
 
@@ -447,6 +449,22 @@ async function checkAndCleanExpiredTimer() {
           const rules = await generateRules(sites);
           await updateRules(rules);
           console.log('Rules updated successfully after timer expiration');
+
+          // Verify timer rules (50000-99999) were actually removed
+          const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+          const timerRulesRemaining = currentRules.filter(r => r.id >= 50000 && r.id < 100000);
+
+          if (timerRulesRemaining.length > 0) {
+            console.warn('Timer rules still exist after update, force-removing:', timerRulesRemaining.length, 'rules');
+            const timerRuleIds = timerRulesRemaining.map(r => r.id);
+            await chrome.declarativeNetRequest.updateDynamicRules({
+              removeRuleIds: timerRuleIds,
+              addRules: []
+            });
+            console.log('Force-removed timer rules:', timerRuleIds);
+          } else {
+            console.log('Verified: No timer rules remaining');
+          }
         } catch (ruleError) {
           console.error('Error updating rules after timer expiration:', ruleError);
           // Retry rule update once
@@ -455,6 +473,17 @@ async function checkAndCleanExpiredTimer() {
             const rules = await generateRules(sites);
             await updateRules(rules);
             console.log('Rules updated successfully on retry');
+
+            // Force-remove timer rules as a fallback
+            const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+            const timerRuleIds = currentRules.filter(r => r.id >= 50000 && r.id < 100000).map(r => r.id);
+            if (timerRuleIds.length > 0) {
+              await chrome.declarativeNetRequest.updateDynamicRules({
+                removeRuleIds: timerRuleIds,
+                addRules: []
+              });
+              console.log('Force-removed timer rules on retry:', timerRuleIds);
+            }
           } catch (retryError) {
             console.error('Failed to update rules on retry:', retryError);
           }
