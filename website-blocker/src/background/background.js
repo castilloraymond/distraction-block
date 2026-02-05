@@ -431,7 +431,7 @@ async function checkAndCleanExpiredTimer() {
     if (timer) {
       const elapsed = Date.now() - timer.startTime;
       console.log(`Checking timer: elapsed ${elapsed}ms, duration ${timer.duration}ms`);
-      
+
       if (elapsed >= timer.duration) {
         console.log('Found expired timer, cleaning up...');
 
@@ -442,51 +442,58 @@ async function checkAndCleanExpiredTimer() {
         // Remove timer from storage
         await chrome.storage.local.remove(['activeTimer']);
 
-        // Update rules to remove timer-based blocking
-        // This is critical - must happen after timer is removed so generateRules sees no active timer
+        // CRITICAL: Force-remove all timer rules FIRST before regenerating
+        // This ensures timer rules are cleared even if regeneration has issues
+        const currentRulesBefore = await chrome.declarativeNetRequest.getDynamicRules();
+        const timerRuleIds = currentRulesBefore.filter(r => r.id >= 50000 && r.id < 100000).map(r => r.id);
+
+        if (timerRuleIds.length > 0) {
+          console.log('Force-removing timer rules first:', timerRuleIds.length, 'rules');
+          await chrome.declarativeNetRequest.updateDynamicRules({
+            removeRuleIds: timerRuleIds,
+            addRules: []
+          });
+          console.log('Timer rules force-removed');
+        }
+
+        // Now regenerate rules (should only include individual blocked sites and schedules)
         try {
           const sites = await getBlockedSites();
           const rules = await generateRules(sites);
+          console.log('Generated', rules.length, 'rules after timer expiration');
+
+          // Log rule ID ranges for debugging
+          const ruleRanges = {
+            individual: rules.filter(r => r.id >= 1000 && r.id < 50000).length,
+            timer: rules.filter(r => r.id >= 50000 && r.id < 100000).length,
+            scheduled: rules.filter(r => r.id >= 100000).length
+          };
+          console.log('Rule ranges:', ruleRanges);
+
+          if (ruleRanges.timer > 0) {
+            console.error('BUG: Timer rules generated after timer expiration!');
+          }
+
           await updateRules(rules);
           console.log('Rules updated successfully after timer expiration');
 
-          // Verify timer rules (50000-99999) were actually removed
-          const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
-          const timerRulesRemaining = currentRules.filter(r => r.id >= 50000 && r.id < 100000);
+          // Final verification
+          const currentRulesAfter = await chrome.declarativeNetRequest.getDynamicRules();
+          const timerRulesRemaining = currentRulesAfter.filter(r => r.id >= 50000 && r.id < 100000);
 
           if (timerRulesRemaining.length > 0) {
-            console.warn('Timer rules still exist after update, force-removing:', timerRulesRemaining.length, 'rules');
-            const timerRuleIds = timerRulesRemaining.map(r => r.id);
+            console.error('Timer rules STILL exist after cleanup:', timerRulesRemaining.length);
+            // Emergency force-remove
             await chrome.declarativeNetRequest.updateDynamicRules({
-              removeRuleIds: timerRuleIds,
+              removeRuleIds: timerRulesRemaining.map(r => r.id),
               addRules: []
             });
-            console.log('Force-removed timer rules:', timerRuleIds);
+            console.log('Emergency force-removed remaining timer rules');
           } else {
             console.log('Verified: No timer rules remaining');
           }
         } catch (ruleError) {
           console.error('Error updating rules after timer expiration:', ruleError);
-          // Retry rule update once
-          try {
-            const sites = await getBlockedSites();
-            const rules = await generateRules(sites);
-            await updateRules(rules);
-            console.log('Rules updated successfully on retry');
-
-            // Force-remove timer rules as a fallback
-            const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
-            const timerRuleIds = currentRules.filter(r => r.id >= 50000 && r.id < 100000).map(r => r.id);
-            if (timerRuleIds.length > 0) {
-              await chrome.declarativeNetRequest.updateDynamicRules({
-                removeRuleIds: timerRuleIds,
-                addRules: []
-              });
-              console.log('Force-removed timer rules on retry:', timerRuleIds);
-            }
-          } catch (retryError) {
-            console.error('Failed to update rules on retry:', retryError);
-          }
         }
 
         // Update icon
@@ -728,6 +735,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       handleCheckShouldBlock(request.payload, sendResponse).catch(error => {
         console.error('Error in CHECK_SHOULD_BLOCK:', error);
         sendResponse({ shouldBlock: false });
+      });
+      return true;
+    case 'DEBUG_GET_RULES':
+      handleDebugGetRules(sendResponse).catch(error => {
+        console.error('Error in DEBUG_GET_RULES:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+      return true;
+    case 'FORCE_CLEAR_TIMER_RULES':
+      handleForceClearTimerRules(sendResponse).catch(error => {
+        console.error('Error in FORCE_CLEAR_TIMER_RULES:', error);
+        sendResponse({ success: false, error: error.message });
       });
       return true;
     default:
@@ -1162,6 +1181,98 @@ async function handleCheckShouldBlock(payload, sendResponse) {
   } catch (error) {
     console.error('Error in handleCheckShouldBlock:', error);
     sendResponse({ shouldBlock: false });
+  }
+}
+
+// Debug Handler Functions
+async function handleDebugGetRules(sendResponse) {
+  try {
+    const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+    const timer = await getActiveTimer();
+    const blockedSites = await getBlockedSites();
+    const siteLists = await getSiteLists();
+
+    // Categorize rules by ID range
+    const rulesByRange = {
+      individual: currentRules.filter(r => r.id >= 1000 && r.id < 50000),
+      timer: currentRules.filter(r => r.id >= 50000 && r.id < 100000),
+      scheduled: currentRules.filter(r => r.id >= 100000)
+    };
+
+    console.log('=== DEBUG: Current Rules ===');
+    console.log('Total rules:', currentRules.length);
+    console.log('Individual site rules (1000-49999):', rulesByRange.individual.length);
+    console.log('Timer rules (50000-99999):', rulesByRange.timer.length);
+    console.log('Scheduled rules (100000+):', rulesByRange.scheduled.length);
+    console.log('Active timer:', timer);
+    console.log('Individual blocked sites:', blockedSites.map(s => s.url));
+    console.log('Site lists:', siteLists.map(l => ({ id: l.id, name: l.name, sites: l.sites })));
+
+    // Check for rule conflicts - sites that are in BOTH individual and focus list
+    const individualSiteUrls = blockedSites.map(s => s.url.replace('www.', '').toLowerCase());
+    siteLists.forEach(list => {
+      const overlap = list.sites.filter(site =>
+        individualSiteUrls.includes(site.replace('www.', '').toLowerCase())
+      );
+      if (overlap.length > 0) {
+        console.log(`WARNING: Sites in both individual list AND "${list.name}":`, overlap);
+      }
+    });
+
+    sendResponse({
+      success: true,
+      data: {
+        totalRules: currentRules.length,
+        rulesByRange: {
+          individual: rulesByRange.individual.length,
+          timer: rulesByRange.timer.length,
+          scheduled: rulesByRange.scheduled.length
+        },
+        activeTimer: timer,
+        blockedSites: blockedSites.map(s => s.url),
+        siteLists: siteLists.map(l => ({ id: l.id, name: l.name, sites: l.sites }))
+      }
+    });
+  } catch (error) {
+    console.error('Error in handleDebugGetRules:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function handleForceClearTimerRules(sendResponse) {
+  try {
+    // Remove timer from storage
+    await chrome.storage.local.remove(['activeTimer']);
+
+    // Clear timer alarms
+    await chrome.alarms.clear('focusTimerExpiration');
+    await chrome.alarms.clear('timerExpirationCheck');
+
+    // Force-remove ALL timer rules (50000-99999)
+    const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+    const timerRuleIds = currentRules.filter(r => r.id >= 50000 && r.id < 100000).map(r => r.id);
+
+    if (timerRuleIds.length > 0) {
+      console.log('Force-clearing', timerRuleIds.length, 'timer rules');
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: timerRuleIds,
+        addRules: []
+      });
+    }
+
+    // Regenerate rules
+    const sites = await getBlockedSites();
+    const rules = await generateRules(sites);
+    await updateRules(rules);
+
+    // Update icon
+    await updateExtensionIcon(false);
+
+    console.log('Force-cleared timer rules and regenerated', rules.length, 'rules');
+    sendResponse({ success: true, clearedRules: timerRuleIds.length });
+  } catch (error) {
+    console.error('Error in handleForceClearTimerRules:', error);
+    sendResponse({ success: false, error: error.message });
   }
 }
 
