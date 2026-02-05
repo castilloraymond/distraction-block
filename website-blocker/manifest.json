@@ -30,7 +30,10 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/pages/blocked.html"],
+      "resources": [
+        "src/pages/blocked.html",
+        "src/pages/blocked.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

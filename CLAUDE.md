@@ -1,78 +1,93 @@
-CLAUDE.md generic
+# CLAUDE.md
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Applies to: All Tasks
+## Project Overview
 
-## Rule:
-You are a senior engineer with deep experience building production-grade AI agents, automations, and workflow systems. Every task you execute must follow this procedure without exception:
+Chrome Extension (Manifest V3) for blocking distracting websites with focus timer sessions, YouTube audio-only mode, scheduled blocking, and site list management.
 
-1.Clarify Scope First
-•Before writing any code, map out exactly how you will approach the task.
-•Confirm your interpretation of the objective.
-•Write a clear plan showing what functions, modules, or components will be touched and why.
-•Do not begin implementation until this is done and reasoned through.
+## Development
 
-2.Locate Exact Code Insertion Point
-•Identify the precise file(s) and line(s) where the change will live.
-•Never make sweeping edits across unrelated files.
-•If multiple files are needed, justify each inclusion explicitly.
-•Do not create new abstractions or refactor unless the task explicitly says so.
+This is a vanilla JavaScript Chrome extension with no build system or package manager.
 
-3.Minimal, Contained Changes
-•Only write code directly required to satisfy the task.
-•Avoid adding logging, omments, tests, TODOs, cleanup, or error handling unless directly necessary.
-•No speculative changes or “while we’re here” edits.
-•All logic should be isolated to not break existing flows.
+### Loading the Extension
+1. Navigate to `chrome://extensions/`
+2. Enable "Developer mode" (toggle in top right)
+3. Click "Load unpacked" and select the `website-blocker` folder
+4. After code changes, click the refresh icon on the extension card
 
-4.Double Check Everything
-•Review for correctness, scope adherence, and side effects.
-•Ensure your code is aligned with the existing codebase patterns and avoids regressions.
-•Explicitly verify whether anything downstream will be impacted.
+### Testing Changes
+- Reload extension after modifying `background.js` or `manifest.json`
+- Refresh the popup by closing and reopening it
+- For content script changes, refresh the target page
 
-5.Deliver Clearly
-•Summarize what was changed and why.
-•List every file modified and what was done in each.
-•If there are any assumptions or risks, flag them for review.
+## Architecture
 
-Reminder: You are not a co-pilot, assistant, or brainstorm partner. You are the senior engineer responsible for high-leverage, production-safe changes. Do not improvise. Do not over-engineer. Do not deviate
+### Three-Tier Message-Based Architecture
 
-## Standard Workflow
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
+│  Popup UI       │◄───►│  Background Service  │◄───►│ Content Scripts │
+│  (popup.js)     │     │  Worker (background  │     │ (audio-mode.js) │
+│                 │     │  .js)                │     │ (blocked.js)    │
+└─────────────────┘     └──────────────────────┘     └─────────────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │  Chrome APIs         │
+                    │  - storage.local     │
+                    │  - storage.session   │
+                    │  - declarativeNetReq │
+                    │  - alarms            │
+                    └──────────────────────┘
+```
 
-Use this workflow when working on a new task:
+### Key Files
 
-1. First, think through the problem, read the codebase or relevant files, and write a plan to task/todoo-<date in yyyymmdd>.md 
-2. The plan should have a list of the two items that you can check off as you complete them. 
-3. Before you begin working, check in with me and I will verify the plan. 
-4. Then begin working on the todo items, marking them as complete as you go. 
-5. Finally, add the review section to the todo.md file with the summary of the changes you made and any other relevant information. 
+| File | Purpose | Lines |
+|------|---------|-------|
+| `website-blocker/src/background/background.js` | Service worker: rule management, storage, timers, message routing | ~1,260 |
+| `website-blocker/src/popup/popup.js` | Popup UI: site management, timer display, list configuration | ~1,055 |
+| `website-blocker/src/content/audio-mode.js` | YouTube audio overlay injection and controls | ~280 |
+| `website-blocker/src/pages/blocked.js` | Block page interactions and temporary whitelist | ~110 |
 
-Periodically make sure to commit this to the GitHub repo when it makes sense to do so
+### Rule ID Ranges
+- `1000-49999`: Individual blocked sites
+- `50000-99999`: Timer-based site list blocking
 
-## CODING PROTOCOL 
-Coding Instructions
+### Storage Schema
 
-- Write the absolute minimum code required
-- No sweeping changes
-- No unrelated edits - focus on just the task you're on
-- Make code precise, modular, testable
-- Don’t break existing functionality
-- If I need to do anything (e.g. Supabase/AWS config), tell me clearly
+```javascript
+// chrome.storage.local
+{
+  blockedSites: [{ id, url, audioMode, allowedPages[], ruleId }],
+  siteLists: [{ id, name, sites[], audioMode, allowedPages[], schedule }],
+  activeTimer: { id, siteListId, startTime, duration, isActive }
+}
 
-## Commands
+// chrome.storage.session
+{
+  temporaryWhitelist: { [url]: expirationTime }
+}
+```
 
-### Development
-- `npm run dev` - Start development server with Turbopack
-- `npm run build` - Build for production
-- `npm run start` - Start production server
+### Message Passing
 
-### Code Quality
-- `npm run lint` - Run ESLint
-- `npm run lint:fix` - Run ESLint with auto-fix
-- `npm run types` - Run TypeScript type checking
-- `npm run format:write` - Format code with Prettier
-- `npm run clean` - Run both lint:fix and format:write
+All cross-script communication uses `chrome.runtime.sendMessage` with action-based routing:
+- `GET_BLOCKED_SITES`, `ADD_BLOCKED_SITE`, `REMOVE_BLOCKED_SITE`
+- `START_TIMER`, `STOP_TIMER`, `GET_TIMER_STATE`
+- `ADD_TO_TEMPORARY_WHITELIST`, `CHECK_TEMPORARY_WHITELIST`
 
-### Testing
-- `npm run test` - Run all tests (unit + e2e)
-- `npm run test:unit` - Run Jest unit tests
-- `npm run test:e2e` - Run Playwright e2e tests
+## Workflow Rules
+
+### Standard Task Workflow
+1. Write plan to `task/todo-<date in yyyymmdd>.md` with checkable items
+2. Check in for plan verification before starting work
+3. Work through items, marking complete as you go
+4. Add review section with summary of changes
+
+### Coding Protocol
+- Write minimum code required for the task
+- No sweeping or unrelated edits
+- Don't break existing functionality
+- If user action required (e.g., config changes), state clearly
